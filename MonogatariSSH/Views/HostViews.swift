@@ -1,0 +1,317 @@
+import SwiftUI
+
+struct HostListView: View {
+    @EnvironmentObject var store: AppStore
+    @State private var adding = false
+    @State private var query = ""
+
+    var filtered: [Host] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let list = store.hosts.sorted { $0.createdAt < $1.createdAt }
+        guard !q.isEmpty else { return list }
+        return list.filter { $0.displayName.lowercased().contains(q) || $0.hostname.lowercased().contains(q) || $0.username.lowercased().contains(q) }
+    }
+
+    var groups: [(String, [Host])] {
+        let dict = Dictionary(grouping: filtered) { $0.group }
+        return dict.keys.sorted { a, b in a.isEmpty ? true : (b.isEmpty ? false : a < b) }.map { ($0, dict[$0]!) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(groups, id: \.0) { name, hosts in
+                Section(name.isEmpty ? "" : name) {
+                    ForEach(hosts) { HostRow(host: $0) }
+                }
+            }
+        }
+        .overlay {
+            if store.hosts.isEmpty {
+                ContentUnavailableView {
+                    Label("还没有主机", systemImage: "desktopcomputer")
+                } description: {
+                    Text("添加一台服务器，开始用 Claude Code 远程干活")
+                } actions: {
+                    Button("添加主机") { adding = true }.buttonStyle(.borderedProminent)
+                }
+            } else if filtered.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
+        }
+        .searchable(text: $query, prompt: "搜索主机")
+        .navigationTitle("主机")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { adding = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("添加主机")
+            }
+        }
+        .sheet(isPresented: $adding) { HostEditView(host: nil) }
+    }
+}
+
+struct HostEditView: View {
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var settings: AppSettings
+    @Environment(\.dismiss) var dismiss
+
+    @State private var host: Host
+    @State private var password: String
+    @State private var portText: String
+    @State private var showAdvanced = false
+    private let isNew: Bool
+
+    init(host: Host?) {
+        let h = host ?? Host()
+        _host = State(initialValue: h)
+        _password = State(initialValue: host.flatMap { AppStore.shared.password(for: $0) } ?? "")
+        _portText = State(initialValue: host.map { String($0.port) } ?? "")
+        isNew = host == nil
+    }
+
+    var valid: Bool { !host.hostname.trimmingCharacters(in: .whitespaces).isEmpty && !host.username.isEmpty }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    IconField(symbol: "tag.fill", colors: Color.tileBlue, placeholder: "别名", text: $host.alias)
+                }
+
+                Section("连接") {
+                    IconField(symbol: "globe", colors: Color.tileGreen, placeholder: "主机", text: $host.hostname, keyboard: .URL)
+                    IconField(symbol: "number", colors: Color.tileTeal, placeholder: "端口（默认 \(host.proto.defaultPort)）", text: $portText, keyboard: .numberPad)
+                    IconField(symbol: "person.fill", colors: Color.tileBlue, placeholder: "用户名", text: $host.username)
+                    if host.proto == .ssh {
+                        HStack(spacing: 12) {
+                            IconTile(symbol: "lock.fill", colors: Color.tilePurple)
+                            Text("身份验证")
+                            Spacer()
+                            Picker("身份验证", selection: $host.auth) {
+                                ForEach(AuthMethod.allCases) { Text($0.title).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .fixedSize()
+                        }
+                        if host.auth == .password {
+                            IconSecureField(symbol: "key.fill", colors: Color.tileOrange, placeholder: "密码", text: $password)
+                        } else {
+                            HStack(spacing: 12) {
+                                IconTile(symbol: "key.horizontal.fill", colors: Color.tileOrange)
+                                Picker("密钥", selection: $host.keyID) {
+                                    Text("未选择").tag(UUID?.none)
+                                    ForEach(store.keys) { Text($0.name).tag(UUID?.some($0.id)) }
+                                }
+                            }
+                            if store.keys.isEmpty {
+                                NavigationLink { KeyListView() } label: {
+                                    Label("先去导入或生成密钥", systemImage: "plus.circle")
+                                }
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            IconTile(symbol: "arrow.clockwise", colors: Color.tileMagenta)
+                            Picker("会话恢复", selection: $host.restore) {
+                                ForEach(SessionRestore.allCases) { Text($0.title).tag($0) }
+                            }
+                        }
+                    } else {
+                        IconSecureField(symbol: "key.fill", colors: Color.tileOrange, placeholder: "密码（仅备忘，登录时手动输入）", text: $password)
+                    }
+                }
+
+                if host.proto == .ssh {
+                    Section {
+                        HStack(spacing: 12) {
+                            IconTile(symbol: "sparkles", colors: Color.tileOrange)
+                            Picker("连接后启动", selection: $host.agent) {
+                                ForEach(AgentPreset.allCases) { Text($0.title).tag($0) }
+                            }
+                        }
+                        if host.agent == .custom || !host.startupCommand.isEmpty {
+                            IconField(symbol: "chevron.left.forwardslash.chevron.right", colors: Color.tileGray,
+                                      placeholder: host.agent == .custom ? "启动命令，如 cd ~/app && claude" : "先执行（如 cd ~/project）",
+                                      text: $host.startupCommand, mono: true)
+                        } else {
+                            Button("启动前先 cd 到项目目录…") { host.startupCommand = "cd ~/" }
+                                .font(.footnote)
+                        }
+                        if host.restore == .tmux {
+                            IconField(symbol: "square.stack.3d.up.fill", colors: Color.tileMagenta, placeholder: "tmux 会话名（默认 mono）", text: $host.tmuxSession, mono: true)
+                        }
+                    } header: {
+                        Text("Agent")
+                    } footer: {
+                        Text(agentFooter)
+                    }
+                }
+
+                Section("外观") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            IconTile(symbol: "paintpalette.fill", colors: Color.tileMagenta)
+                            Text("配色主题")
+                        }
+                        ThemePicker(selection: $host.themeID)
+                    }
+                    .padding(.vertical, 4)
+                    HStack(spacing: 12) {
+                        HostAvatar(host: host, size: 30)
+                        Picker("图标", selection: $host.icon) {
+                            ForEach(HostIcon.allCases) { i in
+                                Label(i.rawValue.capitalized, systemImage: i.symbol).tag(i)
+                            }
+                        }
+                    }
+                    IconField(symbol: "folder.fill", colors: Color.tileBlue, placeholder: "分组（可选）", text: $host.group)
+                }
+
+                Section {
+                    DisclosureGroup("高级", isExpanded: $showAdvanced) {
+                        Picker("协议", selection: $host.proto) {
+                            ForEach(ConnectionProtocol.allCases) { Text($0.title).tag($0) }
+                        }
+                        if host.proto == .ssh {
+                            Picker("跳板机", selection: $host.jumpHostID) {
+                                Text("无").tag(UUID?.none)
+                                ForEach(store.hosts.filter { $0.id != host.id && $0.proto == .ssh }) {
+                                    Text($0.displayName).tag(UUID?.some($0.id))
+                                }
+                            }
+                            Stepper("保活间隔 \(host.keepAliveSeconds == 0 ? "关闭" : "\(host.keepAliveSeconds) 秒")",
+                                    value: $host.keepAliveSeconds, in: 0...300, step: 15)
+                            NavigationLink {
+                                ForwardsEditor(forwards: $host.forwards)
+                            } label: {
+                                LabeledContent("端口转发", value: host.forwards.isEmpty ? "无" : "\(host.forwards.count) 条")
+                            }
+                        }
+                        TextField("备注", text: $host.notes, axis: .vertical).lineLimit(1...4)
+                    }
+                }
+            }
+            .navigationTitle(isNew ? "新建主机" : "编辑主机")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { save() } label: { Image(systemName: "checkmark") }
+                        .disabled(!valid)
+                }
+            }
+            .onChange(of: host.proto) { _, p in
+                if portText.isEmpty || Int(portText) == 22 || Int(portText) == 23 { portText = "" }
+                host.port = p.defaultPort
+            }
+        }
+    }
+
+    var agentFooter: String {
+        switch (host.restore, host.agent) {
+        case (.tmux, .none): return "每次连接都会接回同一个 tmux 会话，断网/切后台后 agent 继续运行。已为手机滑动优化 tmux 滚轮。"
+        case (.tmux, _): return "首次连接会在 tmux 里启动 \(host.agent.title)；之后再连接直接接回现场，不会重复启动。"
+        case (.none, .none): return "建议给跑 agent 的主机开启 tmux 会话恢复：手机锁屏断线后任务不会中断。"
+        default: return "连接成功后自动执行。建议同时开启 tmux 会话恢复，防止断线中断任务。"
+        }
+    }
+
+    func save() {
+        host.hostname = host.hostname.trimmingCharacters(in: .whitespaces)
+        host.port = Int(portText) ?? host.proto.defaultPort
+        store.upsert(host, password: password)
+        Haptics.success()
+        dismiss()
+    }
+}
+
+/// 横向主题卡片（参考图「外观」区）
+struct ThemePicker: View {
+    @Binding var selection: String
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(TerminalTheme.all) { t in
+                    Button {
+                        selection = t.id
+                        Haptics.tap()
+                    } label: {
+                        ThemeCard(theme: t, selected: selection == t.id)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollClipDisabled()
+    }
+}
+
+struct ThemeCard: View {
+    let theme: TerminalTheme
+    let selected: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(theme.name)
+                .font(.system(size: 17, weight: .regular, design: .monospaced))
+                .foregroundStyle(theme.fgColor)
+                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 4) { ForEach(0..<8, id: \.self) { swatch(theme.swatches[$0]) } }
+                HStack(spacing: 4) { ForEach(8..<16, id: \.self) { swatch(theme.swatches[$0]) } }
+            }
+        }
+        .padding(10)
+        .frame(width: 168, alignment: .leading)
+        .background(theme.bgColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            if selected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .blue)
+                    .offset(x: 4, y: 4)
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+    }
+    func swatch(_ c: Color) -> some View {
+        RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 14, height: 14)
+    }
+}
+
+struct ForwardsEditor: View {
+    @Binding var forwards: [PortForward]
+    var body: some View {
+        Form {
+            ForEach($forwards) { $f in
+                Section {
+                    Toggle("启用", isOn: $f.enabled)
+                    LabeledContent("本地端口") {
+                        TextField("8080", value: $f.localPort, format: .number.grouping(.never))
+                            .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("远端主机") {
+                        TextField("127.0.0.1", text: $f.remoteHost)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("远端端口") {
+                        TextField("80", value: $f.remotePort, format: .number.grouping(.never))
+                            .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    }
+                } footer: {
+                    Text(f.summary).font(.footnote.monospaced())
+                }
+            }
+            .onDelete { forwards.remove(atOffsets: $0) }
+            Section {
+                Button("添加转发", systemImage: "plus") { forwards.append(PortForward()) }
+            } footer: {
+                Text("连接后在手机本地监听端口，经 SSH 转发到远端，例如在 Safari 打开 localhost:3000 预览 agent 跑起来的网页。")
+            }
+        }
+        .navigationTitle("端口转发")
+    }
+}

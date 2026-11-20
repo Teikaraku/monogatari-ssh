@@ -1,0 +1,143 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+
+      - name: Build (device, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MonogatariSSH.xcodeproj -scheme MonogatariSSH \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build -clonedSourcePackagesDirPath build/SourcePackages \
+            -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: .*MonogatariSSH/|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/MonogatariSSH.app
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Package IPA
+        run: |
+          mkdir -p out/Payload
+          cp -R build/Build/Products/Release-iphoneos/MonogatariSSH.app out/Payload/
+          cd out && zip -qry MonogatariSSH.ipa Payload && ls -lh MonogatariSSH.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MonogatariSSH-ipa
+          path: out/MonogatariSSH.ipa
+
+      - name: Publish nightly release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh release create nightly out/MonogatariSSH.ipa \
+            --title "物语SSH nightly ($(git rev-parse --short HEAD))" \
+            --notes "未签名 IPA，用 TrollStore / Sideloadly / AltStore 自签安装。提交：$(git log -1 --pretty=%s)" \
+            --prerelease --target "$GITHUB_SHA"
+
+  screenshots:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MonogatariSSH.xcodeproj -scheme MonogatariSSH \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build -clonedSourcePackagesDirPath build/SourcePackages \
+            -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee sim.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Debug-iphonesimulator/MonogatariSSH.app
+      - name: Capture screenshots
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          c=[x for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone') and 'Pro' in x['name'] and 'Max' not in x['name']]
+          print(sorted(c,key=lambda x:x['name'])[-1]['udid'])")
+          echo "Simulator $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "20:52" --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/MonogatariSSH.app
+          mkdir -p shots
+          for s in home hosts edit terminal sessions settings snippets; do
+            xcrun simctl terminate "$UDID" top.monogatari.ssh 2>/dev/null || true
+            xcrun simctl launch "$UDID" top.monogatari.ssh -demo "$s"
+            sleep 6
+            xcrun simctl io "$UDID" screenshot "shots/$s.png"
+          done
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl terminate "$UDID" top.monogatari.ssh || true
+          xcrun simctl launch "$UDID" top.monogatari.ssh -demo home; sleep 5
+          xcrun simctl io "$UDID" screenshot shots/home-dark.png
+      - name: Upload sim log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-log
+          path: sim.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots

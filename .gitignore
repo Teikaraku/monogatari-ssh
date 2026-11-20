@@ -1,0 +1,7 @@
+参考图片/
+*.xcodeproj/
+build/
+DerivedData/
+.DS_Store
+*.ipa
+.swiftpm/

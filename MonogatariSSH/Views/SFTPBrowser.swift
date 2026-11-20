@@ -1,0 +1,337 @@
+import SwiftUI
+import Citadel
+import NIOCore
+import UniformTypeIdentifiers
+import QuickLook
+
+struct RemoteEntry: Identifiable, Hashable {
+    var id: String { path }
+    let name: String
+    let path: String
+    let isDir: Bool
+    let isLink: Bool
+    let size: UInt64
+    let modified: Date?
+    let permissions: UInt32?
+
+    var symbol: String {
+        if isDir { return "folder.fill" }
+        if isLink { return "link" }
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic": return "photo"
+        case "md", "txt", "log": return "doc.text"
+        case "swift", "js", "ts", "tsx", "py", "go", "rs", "c", "h", "java", "kt", "rb", "sh", "json", "yml", "yaml", "toml": return "chevron.left.forwardslash.chevron.right"
+        case "zip", "gz", "tar", "xz", "7z": return "doc.zipper"
+        case "pdf": return "doc.richtext"
+        default: return "doc"
+        }
+    }
+}
+
+@MainActor
+final class SFTPModel: ObservableObject {
+    @Published var path = ""
+    @Published var entries: [RemoteEntry] = []
+    @Published var loading = false
+    @Published var error: String?
+    @Published var showHidden = false
+    @Published var preview: URL?
+
+    let session: TerminalSession
+    private var client: SFTPClient?
+
+    init(session: TerminalSession) { self.session = session }
+
+    var visible: [RemoteEntry] { showHidden ? entries : entries.filter { !$0.name.hasPrefix(".") } }
+
+    func sftp() async throws -> SFTPClient {
+        if let client, client.isActive { return client }
+        guard let t = session.sshTransport else { throw ConnectError.message("当前会话不支持 SFTP") }
+        let c = try await t.openSFTP()
+        client = c
+        return c
+    }
+
+    func load(_ target: String? = nil) async {
+        loading = true
+        defer { loading = false }
+        do {
+            let c = try await sftp()
+            let p = try await c.getRealPath(atPath: target ?? (path.isEmpty ? "." : path))
+            let names = try await c.listDirectory(atPath: p)
+            var list: [RemoteEntry] = []
+            for n in names {
+                for comp in n.components where comp.filename != "." && comp.filename != ".." {
+                    let perms = comp.attributes.permissions
+                    let type = (perms ?? 0) & 0o170000
+                    let isDir = type == 0o040000 || comp.longname.hasPrefix("d")
+                    let isLink = type == 0o120000 || comp.longname.hasPrefix("l")
+                    list.append(RemoteEntry(name: comp.filename,
+                                            path: (p == "/" ? "" : p) + "/" + comp.filename,
+                                            isDir: isDir, isLink: isLink,
+                                            size: comp.attributes.size ?? 0,
+                                            modified: comp.attributes.accessModificationTime?.modificationTime,
+                                            permissions: perms))
+                }
+            }
+            list.sort { a, b in a.isDir != b.isDir ? a.isDir : a.name.localizedStandardCompare(b.name) == .orderedAscending }
+            path = p
+            entries = list
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func open(_ e: RemoteEntry) async {
+        if e.isDir { await load(e.path); return }
+        if e.isLink {
+            // 符号链接：尝试当目录进入，失败则当文件下载
+            let before = path
+            await load(e.path)
+            if error == nil && path != before { return }
+            error = nil
+        }
+        if let url = await download(e) { preview = url }
+    }
+
+    func download(_ e: RemoteEntry) async -> URL? {
+        var record = TransferRecord(hostName: session.host.displayName, remotePath: e.path, localName: e.name,
+                                    direction: .download, bytes: 0, total: Int64(e.size), state: .running)
+        AppStore.shared.record(record)
+        do {
+            let c = try await sftp()
+            let file = try await c.openFile(filePath: e.path, flags: .read)
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent(e.name)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: url)
+            var offset: UInt64 = 0
+            let chunk: UInt32 = 256 * 1024
+            while true {
+                let buf = try await file.read(from: offset, length: chunk)
+                if buf.readableBytes == 0 { break }
+                try handle.write(contentsOf: Data(buf.readableBytesView))
+                offset += UInt64(buf.readableBytes)
+                record.bytes = Int64(offset)
+                AppStore.shared.record(record)
+                if buf.readableBytes < Int(chunk) && offset >= e.size { break }
+            }
+            try handle.close()
+            try await file.close()
+            record.state = .done
+            record.total = Int64(offset)
+            AppStore.shared.record(record)
+            return url
+        } catch {
+            record.state = .failed
+            record.message = error.localizedDescription
+            AppStore.shared.record(record)
+            self.error = "下载失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func upload(_ local: URL) async {
+        let ok = local.startAccessingSecurityScopedResource()
+        defer { if ok { local.stopAccessingSecurityScopedResource() } }
+        let remote = (path == "/" ? "" : path) + "/" + local.lastPathComponent
+        let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int64) ?? 0
+        var record = TransferRecord(hostName: session.host.displayName, remotePath: remote, localName: local.lastPathComponent,
+                                    direction: .upload, bytes: 0, total: size, state: .running)
+        AppStore.shared.record(record)
+        do {
+            let c = try await sftp()
+            let file = try await c.openFile(filePath: remote, flags: [.write, .create, .truncate])
+            let handle = try FileHandle(forReadingFrom: local)
+            var offset: UInt64 = 0
+            while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty {
+                try await file.write(ByteBuffer(bytes: data), at: offset)
+                offset += UInt64(data.count)
+                record.bytes = Int64(offset)
+                AppStore.shared.record(record)
+            }
+            try handle.close()
+            try await file.close()
+            record.state = .done
+            record.total = Int64(offset)
+            AppStore.shared.record(record)
+            Toast.shared.show("已上传 \(local.lastPathComponent)")
+            await load(path)
+        } catch {
+            record.state = .failed
+            record.message = error.localizedDescription
+            AppStore.shared.record(record)
+            self.error = "上传失败：\(error.localizedDescription)"
+        }
+    }
+
+    func mkdir(_ name: String) async {
+        do { try await sftp().createDirectory(atPath: (path == "/" ? "" : path) + "/" + name); await load(path) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func delete(_ e: RemoteEntry) async {
+        do {
+            let c = try await sftp()
+            if e.isDir { try await c.rmdir(at: e.path) } else { try await c.remove(at: e.path) }
+            await load(path)
+        } catch { self.error = "删除失败（目录需为空）：\(error.localizedDescription)" }
+    }
+
+    func rename(_ e: RemoteEntry, to name: String) async {
+        let parent = (e.path as NSString).deletingLastPathComponent
+        do { try await sftp().rename(at: e.path, to: (parent == "/" ? "" : parent) + "/" + name); await load(path) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func close() {
+        let c = client
+        client = nil
+        Task { try? await c?.close() }
+    }
+}
+
+struct SFTPBrowser: View {
+    @StateObject private var model: SFTPModel
+    @Environment(\.dismiss) var dismiss
+    @State private var importing = false
+    @State private var newFolder = false
+    @State private var folderName = ""
+    @State private var renaming: RemoteEntry?
+    @State private var renameText = ""
+    @State private var pathInput = false
+    @State private var pathText = ""
+
+    init(session: TerminalSession) {
+        _model = StateObject(wrappedValue: SFTPModel(session: session))
+    }
+
+    var body: some View {
+        List {
+            if model.path != "/" && !model.path.isEmpty {
+                Button {
+                    Task { await model.load((model.path as NSString).deletingLastPathComponent) }
+                } label: {
+                    Label("上一级", systemImage: "arrow.turn.left.up")
+                }
+            }
+            ForEach(model.visible) { e in
+                Button { Task { await model.open(e) } } label: { row(e) }
+                    .buttonStyle(.plain)
+                    .contextMenu { menu(e) }
+                    .swipeActions {
+                        Button(role: .destructive) { Task { await model.delete(e) } } label: { Label("删除", systemImage: "trash") }
+                        Button { renameText = e.name; renaming = e } label: { Label("重命名", systemImage: "pencil") }.tint(.orange)
+                    }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable { await model.load(model.path) }
+        .overlay {
+            if model.loading && model.entries.isEmpty { ProgressView() }
+            else if let err = model.error, model.entries.isEmpty {
+                ContentUnavailableView("无法打开", systemImage: "exclamationmark.triangle", description: Text(err))
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let err = model.error, !model.entries.isEmpty {
+                Text(err).font(.footnote).foregroundStyle(.red).padding(10).frame(maxWidth: .infinity)
+                    .background(.regularMaterial)
+                    .onTapGesture { model.error = nil }
+            }
+        }
+        .navigationTitle((model.path as NSString).lastPathComponent.isEmpty ? "/" : (model.path as NSString).lastPathComponent)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button { pathText = model.path; pathInput = true } label: {
+                    VStack(spacing: 0) {
+                        Text((model.path as NSString).lastPathComponent.isEmpty ? "/" : (model.path as NSString).lastPathComponent).font(.headline)
+                        Text(model.path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("上传文件", systemImage: "square.and.arrow.up") { importing = true }
+                    Button("新建文件夹", systemImage: "folder.badge.plus") { folderName = ""; newFolder = true }
+                    Button("前往路径…", systemImage: "arrow.right.circle") { pathText = model.path; pathInput = true }
+                    Divider()
+                    Button("在终端 cd 到这里", systemImage: "terminal") {
+                        model.session.send(text: "cd \(quote(model.path))\r"); dismiss()
+                    }
+                    Button("复制当前路径", systemImage: "doc.on.doc") { Clipboard.copy(model.path) }
+                    Toggle("显示隐藏文件", systemImage: "eye", isOn: $model.showHidden)
+                } label: { Image(systemName: "ellipsis") }
+            }
+        }
+        .task { await model.load() }
+        .onDisappear { model.close() }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
+            if case .success(let urls) = r {
+                Task { for u in urls { await model.upload(u) } }
+            }
+        }
+        .quickLookPreview($model.preview)
+        .alert("新建文件夹", isPresented: $newFolder) {
+            TextField("名称", text: $folderName)
+            Button("创建") { Task { await model.mkdir(folderName) } }
+            Button("取消", role: .cancel) {}
+        }
+        .alert("重命名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("新名称", text: $renameText)
+            Button("确定") { if let e = renaming { Task { await model.rename(e, to: renameText) } } }
+            Button("取消", role: .cancel) {}
+        }
+        .alert("前往路径", isPresented: $pathInput) {
+            TextField("/var/www", text: $pathText).textInputAutocapitalization(.never).autocorrectionDisabled()
+            Button("前往") { Task { await model.load(pathText) } }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    private func row(_ e: RemoteEntry) -> some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: e.symbol, colors: e.isDir ? Color.tileBlue : Color.tileGray, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(e.name).lineLimit(1).foregroundStyle(.primary)
+                Text(detail(e)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if e.isDir { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
+        }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private func menu(_ e: RemoteEntry) -> some View {
+        Button("复制路径", systemImage: "doc.on.doc") { Clipboard.copy(e.path) }
+        Button("作为 @文件 发给 agent", systemImage: "at") {
+            model.session.send(text: "@\(e.path) "); dismiss()
+        }
+        Button("插入路径到终端", systemImage: "character.cursor.ibeam") {
+            model.session.send(text: quote(e.path) + " "); dismiss()
+        }
+        if e.isDir {
+            Button("在终端 cd 到这里", systemImage: "terminal") { model.session.send(text: "cd \(quote(e.path))\r"); dismiss() }
+        } else {
+            Button("下载并分享", systemImage: "square.and.arrow.down") { Task { await model.open(e) } }
+        }
+        Button("重命名", systemImage: "pencil") { renameText = e.name; renaming = e }
+        Button("删除", systemImage: "trash", role: .destructive) { Task { await model.delete(e) } }
+    }
+
+    private func detail(_ e: RemoteEntry) -> String {
+        var parts: [String] = []
+        if !e.isDir { parts.append(ByteCountFormatter.string(fromByteCount: Int64(e.size), countStyle: .file)) }
+        if let m = e.modified { parts.append(m.formatted(date: .abbreviated, time: .shortened)) }
+        if let p = e.permissions { parts.append(String(p & 0o777, radix: 8)) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+}
