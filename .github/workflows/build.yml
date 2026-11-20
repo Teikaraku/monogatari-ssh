@@ -106,6 +106,8 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl status_bar "$UDID" override --time "20:52" --batteryState charged --batteryLevel 100 || true
+          xcrun simctl spawn "$UDID" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true || true
+          xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true || true
           xcrun simctl install "$UDID" build/Build/Products/Release-iphonesimulator/MonogatariSSH.app
           mkdir -p shots
           for s in home hosts edit terminal sessions settings snippets; do

@@ -170,6 +170,9 @@ final class SSHTransport: TerminalTransport {
     private(set) var client: SSHClient?
     private var jumps: [SSHClient] = []
     private var writer: TTYStdinWriter?
+    /// 所有写入按顺序进入同一条队列，由单个任务依次发送，保证按键不乱序
+    private let outbox = AsyncStream<ByteBuffer>.makeStream()
+    private var outboxTask: Task<Void, Never>?
     private var ptyTask: Task<Void, Never>?
     private var keepAlive: Task<Void, Never>?
     private var forwarders: [PortForwarder] = []
@@ -210,6 +213,7 @@ final class SSHTransport: TerminalTransport {
             do {
                 try await client.withPTY(req, environment: env) { inbound, outbound in
                     self.writer = outbound
+                    self.startOutbox(outbound)
                     ready.continuation.yield()
                     ready.continuation.finish()
                     for try await chunk in inbound {
@@ -254,9 +258,17 @@ final class SSHTransport: TerminalTransport {
     }
 
     func write(_ data: Data) {
-        guard let writer else { return }
-        let buf = ByteBuffer(bytes: data)
-        Task { try? await writer.write(buf) }
+        guard writer != nil, !closed else { return }
+        outbox.continuation.yield(ByteBuffer(bytes: data))
+    }
+
+    private func startOutbox(_ w: TTYStdinWriter) {
+        let stream = outbox.stream
+        outboxTask = Task.detached {
+            for await buf in stream {
+                do { try await w.write(buf) } catch { break }
+            }
+        }
     }
 
     func resize(cols: Int, rows: Int) {
@@ -268,6 +280,8 @@ final class SSHTransport: TerminalTransport {
         closed = true
         keepAlive?.cancel()
         ptyTask?.cancel()
+        outbox.continuation.finish()
+        outboxTask?.cancel()
         forwarders.forEach { $0.stop() }
         forwarders.removeAll()
         let c = client, j = jumps

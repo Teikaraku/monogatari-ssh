@@ -70,10 +70,10 @@ struct TerminalScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .monoShowSnippets)) { n in
             if n.object as? UUID == session.id { showSnippets = true }
         }
-        .sheet(isPresented: $showCompose) { ComposeSheet(session: session) }
-        .sheet(isPresented: $showSnippets) { SnippetPicker(session: session) }
-        .sheet(isPresented: $showInfo) { HostInfoSheet(host: session.host) }
-        .sheet(isPresented: $showThemes) {
+        .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
+        .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
+        .sheet(isPresented: $showInfo, onDismiss: refocus) { HostInfoSheet(host: session.host) }
+        .sheet(isPresented: $showThemes, onDismiss: refocus) {
             NavigationStack {
                 ScrollView { ThemeGrid(selection: Binding(get: { session.host.themeID }, set: { id in
                     session.applyTheme(id)
@@ -161,9 +161,7 @@ struct TerminalScreen: View {
             HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("连接中") }
                 .font(.caption2).foregroundStyle(.secondary)
         case .connected:
-            if !session.title.isEmpty, session.title != session.host.displayName {
-                Text(session.title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }
+            TitleLine(model: session.titleModel, hostName: session.host.displayName)
         case .disconnected:
             Text("已断开").font(.caption2).foregroundStyle(.orange)
         }
@@ -191,7 +189,7 @@ struct TerminalScreen: View {
                 Button {
                     session.terminalView.stopMomentum()
                     session.terminalView.scrollToBottom()
-                    session.atBottom = true
+                    session.setAtBottom(true)
                     Haptics.tap()
                 } label: {
                     Image(systemName: "arrow.down.to.line")
@@ -226,6 +224,12 @@ struct TerminalScreen: View {
         .animation(.snappy, value: session.state)
     }
 
+    private func refocus() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if session.state == .connected { _ = session.terminalView.becomeFirstResponder() }
+        }
+    }
+
     private func bumpFont(_ d: Double) {
         settings.fontSize = max(8, min(30, settings.fontSize + d))
         session.refreshFont()
@@ -247,5 +251,16 @@ struct ThemeGrid: View {
             }
         }
         .padding()
+    }
+}
+
+/// 只有这一小块观察终端标题，标题刷新不会重绘终端页
+private struct TitleLine: View {
+    @ObservedObject var model: TitleModel
+    let hostName: String
+    var body: some View {
+        if !model.title.isEmpty, model.title != hostName {
+            Text(model.title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 }

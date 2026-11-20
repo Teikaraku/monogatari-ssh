@@ -53,10 +53,10 @@ final class MonoTerminalView: TerminalView {
 
     // MARK: 状态
 
-    /// 当前是否由远端程序处理滚动（备用屏或已开启鼠标跟踪）
+    /// 只有备用屏（tmux / vim / less / htop）才接管滑动；普通屏（shell、Claude Code）
+    /// 一律交给原生 UIScrollView 滚动本地回滚历史，哪怕程序开了鼠标模式。
     var programOwnsScroll: Bool {
-        guard let s = terminalInputStateSnapshot() else { return false }
-        return s.isAlternateBuffer || s.mouseMode != .off
+        terminalInputStateSnapshot()?.isAlternateBuffer ?? false
     }
 
     /// 是否停在底部（用于"回到底部"按钮）

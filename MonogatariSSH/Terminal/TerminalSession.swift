@@ -13,7 +13,9 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     let id = UUID()
     @Published var host: Host
     @Published var state: State = .connecting
-    @Published var title: String = ""
+    /// 标题单独放：Claude Code 会高频刷新终端标题（转圈动画），不能让它重绘整个终端页
+    let titleModel = TitleModel()
+    var title: String { titleModel.title }
     @Published var atBottom = true
     @Published var pendingHostKey: PendingHostKey?
     let startedAt = Date()
@@ -62,7 +64,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         v.setCursorStyle(Self.cursorStyle(settings.cursorStyle, blink: settings.cursorBlink))
         if settings.useMetal { try? v.setUseMetal(true) }
         v.onFontSizeChange = { size in AppSettings.shared.fontSize = Double(size) }
-        v.onUserScroll = { [weak self] in self?.atBottom = false }
+        v.contentInsetAdjustmentBehavior = .never
+        v.onUserScroll = { [weak self] in self?.setAtBottom(false) }
 
         bar = KeyboardBar(terminal: v, agentRow: settings.agentBar)
         bar.onAction = { [weak self] a in self?.handle(a) }
@@ -75,6 +78,10 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         case "underline": return blink ? .blinkUnderline : .steadyUnderline
         default: return blink ? .blinkBlock : .steadyBlock
         }
+    }
+
+    func setAtBottom(_ v: Bool) {
+        if atBottom != v { atBottom = v }
     }
 
     func applyTheme(_ id: String) {
@@ -91,7 +98,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     func connect() {
         if DemoData.active {
             state = .connected
-            title = "claude"
+            titleModel.update("claude")
             terminalView.feed(text: DemoData.terminalSample)
             return
         }
@@ -205,7 +212,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             reconnect(); return
         }
         transport.write(Data(bytes))
-        if !terminalView.isAtBottom { terminalView.scrollToBottom(); atBottom = true }
+        if !atBottom || !terminalView.isAtBottom { terminalView.scrollToBottom(); setAtBottom(true) }
     }
 
     func send(text: String) { send(Array(text.utf8)) }
@@ -272,25 +279,28 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         weak var owner: TerminalSession?
         init(owner: TerminalSession) { self.owner = owner }
 
+        /// SwiftTerm 在主线程回调；同步处理，绝不经由 Task 转一手（会乱序）
+        private func onMain(_ body: @escaping (TerminalSession) -> Void) {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { if let o = self.owner { body(o) } }
+            } else {
+                DispatchQueue.main.async { if let o = self.owner { body(o) } }
+            }
+        }
+
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            Task { @MainActor in self.owner?.transport?.resize(cols: newCols, rows: newRows) }
+            onMain { $0.transport?.resize(cols: newCols, rows: newRows) }
         }
         func setTerminalTitle(source: TerminalView, title: String) {
-            Task { @MainActor in self.owner?.title = title }
+            onMain { o in o.titleModel.update(title) }
         }
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
             let bytes = Array(data)
-            Task { @MainActor in
-                self.owner?.send(bytes)
-            }
+            onMain { $0.send(bytes) }
         }
         func scrolled(source: TerminalView, position: Double) {
-            Task { @MainActor in
-                guard let owner = self.owner else { return }
-                let bottom = owner.terminalView.isAtBottom
-                if owner.atBottom != bottom { owner.atBottom = bottom }
-            }
+            onMain { o in o.setAtBottom(o.terminalView.isAtBottom) }
         }
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {
@@ -305,6 +315,28 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             if let url = URL(string: link) { Task { @MainActor in UIApplication.shared.open(url) } }
         }
     }
+}
+
+/// 终端标题（节流，避免转圈动画导致频繁刷新）
+@MainActor
+final class TitleModel: ObservableObject {
+    @Published private(set) var title = ""
+    private var pending: String?
+    private var scheduled = false
+
+    func update(_ t: String) {
+        let clean = t.trimmingCharacters(in: .whitespaces)
+        pending = clean
+        guard !scheduled else { return }
+        scheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            self.scheduled = false
+            if let p = self.pending, p != self.title { self.title = p }
+            self.pending = nil
+        }
+    }
+
 }
 
 extension Notification.Name {

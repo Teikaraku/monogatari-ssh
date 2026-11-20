@@ -26,7 +26,7 @@ final class KeyboardBar: UIInputView {
         self.showAgentRow = agentRow
         super.init(frame: CGRect(x: 0, y: 0, width: 400, height: Self.height(agent: agentRow)), inputViewStyle: .keyboard)
         allowsSelfSizing = true
-        translatesAutoresizingMaskIntoConstraints = false
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
         build()
         observers.append(NotificationCenter.default.addObserver(forName: .terminalViewControlModifierReset, object: terminal, queue: .main) { [weak self] _ in
             self?.setToggle(self?.ctrlButton, on: false)
@@ -200,21 +200,32 @@ private final class RepeatButton: UIButton {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    private var firedByRepeat = false
+
     private func wire() {
         addTarget(self, action: #selector(down), for: .touchDown)
-        addTarget(self, action: #selector(up), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        addTarget(self, action: #selector(upInside), for: .touchUpInside)
+        addTarget(self, action: #selector(cancel), for: [.touchUpOutside, .touchCancel, .touchDragExit])
     }
 
+    // 按下只做轻触反馈；抬起才发送，横向拖动按键栏时不会误触
     @objc private func down() {
-        Haptics.tap()
-        handler?()
+        Haptics.soft()
+        firedByRepeat = false
         guard repeats else { return }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
-            self?.timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.handler?() }
+            guard let self else { return }
+            self.firedByRepeat = true
+            self.handler?()
+            self.timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.handler?() }
         }
     }
-    @objc private func up() { timer?.invalidate(); timer = nil }
+    @objc private func upInside() {
+        timer?.invalidate(); timer = nil
+        if !firedByRepeat { Haptics.tap(); handler?() }
+    }
+    @objc private func cancel() { timer?.invalidate(); timer = nil }
 }
 
 /// 方向键摇杆：点击上下左右区域发送一次；按住拖动按距离连续发送（适合在长命令里移动光标、在 agent 的选项列表里上下选）。
