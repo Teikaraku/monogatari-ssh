@@ -80,25 +80,8 @@ jobs:
             --notes "未签名 IPA，用 TrollStore / Sideloadly / AltStore 自签安装。提交：$(git log -1 --pretty=%s)" \
             --prerelease --target "$GITHUB_SHA"
 
-  screenshots:
-    runs-on: macos-26
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
-          sudo xcode-select -s "$XC"
-      - name: Generate project
-        run: |
-          brew install xcodegen
-          xcodegen generate
-      - name: Cache SwiftPM
-        uses: actions/cache@v4
-        with:
-          path: build/SourcePackages
-          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
       - name: Build for simulator
+        if: always()
         run: |
           build() {
             xcodebuild \
@@ -108,8 +91,8 @@ jobs:
               -skipPackagePluginValidation -skipMacroValidation \
               ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build > sim.log 2>&1
           }
-          # SwiftTerm 的构建插件偶尔在其工具编译完成前被调用，失败则重试一次
-          build || { echo "retry"; build; } || true
+          # 复用设备构建已产出的 SwiftTermBuildInfoGenerator（单独编模拟器时插件找不到它）
+          build || true
           grep -E "error:|BUILD (SUCCEEDED|FAILED)" sim.log | tail -20
           test -f build/Build/Products/Release-iphonesimulator/MonogatariSSH.app/MonogatariSSH
       - name: Capture screenshots
