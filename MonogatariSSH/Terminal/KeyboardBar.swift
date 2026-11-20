@@ -38,7 +38,7 @@ final class KeyboardBar: UIInputView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: Self.height(agent: showAgentRow))
@@ -149,7 +149,7 @@ final class KeyboardBar: UIInputView {
 
     private func key(_ title: String, symbol: String? = nil, bytes: [UInt8]? = nil, text: String? = nil,
                      action: Action? = nil, tint: UIColor? = nil, repeats: Bool = false) -> UIButton {
-        let b = RepeatButton(configuration: baseConfig(title: title, symbol: symbol, tint: tint))
+        let b = RepeatButton(config: baseConfig(title: title, symbol: symbol, tint: tint))
         let act: Action = action ?? (bytes.map { .bytes($0) } ?? .text(text ?? title))
         b.repeats = repeats
         b.handler = { [weak self] in self?.fire(act) }
@@ -194,9 +194,9 @@ private final class RepeatButton: UIButton {
     private var timer: Timer?
 
     override init(frame: CGRect) { super.init(frame: frame); wire() }
-    convenience init(configuration: UIButton.Configuration) {
+    convenience init(config: UIButton.Configuration) {
         self.init(frame: .zero)
-        self.configuration = configuration
+        self.configuration = config
     }
     required init?(coder: NSCoder) { fatalError() }
 

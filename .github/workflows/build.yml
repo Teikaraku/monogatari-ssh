@@ -48,7 +48,7 @@ jobs:
             -skipPackagePluginValidation -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log | grep -E "error:|warning: .*MonogatariSSH/|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/Build/Products/Release-iphoneos/MonogatariSSH.app
+          test -f build/Build/Products/Release-iphoneos/MonogatariSSH.app/MonogatariSSH
 
       - name: Upload build log
         if: failure()
@@ -103,11 +103,11 @@ jobs:
           set -o pipefail
           xcodebuild \
             -project MonogatariSSH.xcodeproj -scheme MonogatariSSH \
-            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build -clonedSourcePackagesDirPath build/SourcePackages \
             -skipPackagePluginValidation -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee sim.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/Build/Products/Debug-iphonesimulator/MonogatariSSH.app
+          test -f build/Build/Products/Release-iphonesimulator/MonogatariSSH.app/MonogatariSSH
       - name: Capture screenshots
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "
@@ -119,7 +119,7 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl status_bar "$UDID" override --time "20:52" --batteryState charged --batteryLevel 100 || true
-          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/MonogatariSSH.app
+          xcrun simctl install "$UDID" build/Build/Products/Release-iphonesimulator/MonogatariSSH.app
           mkdir -p shots
           for s in home hosts edit terminal sessions settings snippets; do
             xcrun simctl terminate "$UDID" top.monogatari.ssh 2>/dev/null || true

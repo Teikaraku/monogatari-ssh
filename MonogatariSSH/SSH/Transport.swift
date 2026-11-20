@@ -197,7 +197,8 @@ final class SSHTransport: TerminalTransport {
         }
 
         let ready = AsyncStream<Void>.makeStream()
-        ptyTask = Task { [weak self] in
+        // 读取循环放到后台，不继承 MainActor：主线程忙于渲染/手势时不会堵住数据接收
+        ptyTask = Task.detached { [weak self] in
             guard let self else { return }
             let req = SSHChannelRequestEvent.PseudoTerminalRequest(
                 wantReply: true, term: "xterm-256color",

@@ -18,12 +18,12 @@ struct TerminalTheme: Identifiable, Hashable {
         return (0.299 * c.0 + 0.587 * c.1 + 0.114 * c.2) < 0.5
     }
 
-    var bgColor: Color { Color(uiColor: uiBackground) }
-    var fgColor: Color { Color(uiColor: uiForeground) }
+    var bgColor: SwiftUI.Color { SwiftUI.Color(uiColor: uiBackground) }
+    var fgColor: SwiftUI.Color { SwiftUI.Color(uiColor: uiForeground) }
     var uiBackground: UIColor { Self.ui(background) }
     var uiForeground: UIColor { Self.ui(foreground) }
     var uiCursor: UIColor { Self.ui(cursor) }
-    var swatches: [Color] { ansi.map { Color(uiColor: Self.ui($0)) } }
+    var swatches: [SwiftUI.Color] { ansi.map { SwiftUI.Color(uiColor: Self.ui($0)) } }
 
     var termColors: [SwiftTerm.Color] {
         ansi.map { hex in
