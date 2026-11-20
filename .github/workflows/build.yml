@@ -100,13 +100,17 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
       - name: Build for simulator
         run: |
-          set -o pipefail
-          xcodebuild \
-            -project MonogatariSSH.xcodeproj -scheme MonogatariSSH \
-            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build -clonedSourcePackagesDirPath build/SourcePackages \
-            -skipPackagePluginValidation -skipMacroValidation \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee sim.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          build() {
+            xcodebuild \
+              -project MonogatariSSH.xcodeproj -scheme MonogatariSSH \
+              -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build -clonedSourcePackagesDirPath build/SourcePackages \
+              -skipPackagePluginValidation -skipMacroValidation \
+              ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build > sim.log 2>&1
+          }
+          # SwiftTerm 的构建插件偶尔在其工具编译完成前被调用，失败则重试一次
+          build || { echo "retry"; build; } || true
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)" sim.log | tail -20
           test -f build/Build/Products/Release-iphonesimulator/MonogatariSSH.app/MonogatariSSH
       - name: Capture screenshots
         run: |
