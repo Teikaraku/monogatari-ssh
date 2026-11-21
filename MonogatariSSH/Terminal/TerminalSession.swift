@@ -33,6 +33,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     let titleModel = TitleModel()
     var title: String { titleModel.title }
     @Published var atBottom = true
+    /// 等待确认的多行粘贴
+    @Published var pendingPaste: String?
     /// tmux 未开鼠标滚动时提示
     @Published var needsMouseHint = false
     @Published var pendingHostKey: PendingHostKey?
@@ -386,7 +388,13 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         case .compose: NotificationCenter.default.post(name: .monoShowCompose, object: id)
         case .snippets: NotificationCenter.default.post(name: .monoShowSnippets, object: id)
         case .paste:
-            if let s = UIPasteboard.general.string { terminalView.pasteText(s) }
+            guard let s = UIPasteboard.general.string, !s.isEmpty else { return }
+            // 普通 shell（未开 bracketed paste）里粘贴多行会逐行立即执行：先确认
+            if s.contains("\n") && !terminalView.terminalStateSnapshot().bracketedPasteMode {
+                pendingPaste = s
+            } else {
+                terminalView.pasteText(s)
+            }
         case .hideKeyboard: terminalView.resignFirstResponder()
         case .copyScreen: Clipboard.copy(terminalView.screenText())
         case .search: NotificationCenter.default.post(name: .monoShowSearch, object: id)

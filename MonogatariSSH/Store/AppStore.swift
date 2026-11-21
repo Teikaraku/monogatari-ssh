@@ -148,6 +148,8 @@ extension Snippet {
         Snippet(name: "启动 Claude Code", command: "claude", group: "Agent"),
         Snippet(name: "继续上次对话", command: "claude --continue", group: "Agent"),
         Snippet(name: "选择历史对话", command: "claude --resume", group: "Agent"),
+        Snippet(name: "安装 Claude Code", command: "npm install -g @anthropic-ai/claude-code", group: "Agent"),
+        Snippet(name: "检查 agent 版本", command: "claude --version; codex --version 2>/dev/null; gemini --version 2>/dev/null", group: "Agent"),
         Snippet(name: "更新 Claude Code", command: "claude update", group: "Agent"),
         Snippet(name: "开启 Claude 响铃通知", command: "claude config set --global preferredNotifChannel terminal_bell", group: "Agent"),
         Snippet(name: "跳过权限确认启动", command: "claude --dangerously-skip-permissions", group: "Agent", autoReturn: false),

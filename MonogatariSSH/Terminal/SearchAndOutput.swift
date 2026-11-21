@@ -90,11 +90,12 @@ struct OutputBrowser: View {
     @State private var text = ""
     @State private var lastOnly = true
     @State private var findTrigger = 0
+    @State private var selection = ""
 
     var body: some View {
         NavigationStack {
             NativeTextView(text: text, font: AppSettings.shared.uiFont(size: CGFloat(max(11, AppSettings.shared.fontSize - 1))),
-                           findTrigger: findTrigger, scrollToEnd: true)
+                           findTrigger: findTrigger, scrollToEnd: true, selection: $selection)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("输出")
                 .navigationBarTitleDisplayMode(.inline)
@@ -115,11 +116,12 @@ struct OutputBrowser: View {
                         Menu {
                             Button("复制全部", systemImage: "doc.on.doc") { Clipboard.copy(text) }
                             ShareLink(item: text) { Label("分享", systemImage: "square.and.arrow.up") }
-                            Button("作为附件发给写作框", systemImage: "square.and.pencil") {
-                                UIPasteboard.general.string = text
+                            Button(selection.isEmpty ? "引用全部到写作框" : "引用选中内容到写作框", systemImage: "square.and.pencil") {
+                                let body = selection.isEmpty ? text : selection
+                                let quote = "```\n" + body + "\n```\n"
                                 dismiss()
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                    NotificationCenter.default.post(name: .monoShowCompose, object: session.id)
+                                    NotificationCenter.default.post(name: .monoShowCompose, object: session.id, userInfo: ["seed": quote])
                                 }
                             }
                         } label: { Image(systemName: "ellipsis") }
@@ -147,6 +149,7 @@ struct NativeTextView: UIViewRepresentable {
     let font: UIFont
     var findTrigger: Int = 0
     var scrollToEnd = false
+    var selection: Binding<String>? = nil
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
@@ -156,6 +159,7 @@ struct NativeTextView: UIViewRepresentable {
         tv.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 40, right: 10)
         tv.dataDetectorTypes = [.link]
         if #available(iOS 16.0, *) { tv.isFindInteractionEnabled = true }
+        tv.delegate = context.coordinator
         return tv
     }
 
@@ -176,6 +180,14 @@ struct NativeTextView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var lastFind = 0 }
+    func makeCoordinator() -> Coordinator { Coordinator(selection: selection) }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var lastFind = 0
+        let selection: Binding<String>?
+        init(selection: Binding<String>?) { self.selection = selection }
+        func textViewDidChangeSelection(_ tv: UITextView) {
+            guard let selection, let r = tv.selectedTextRange else { return }
+            selection.wrappedValue = tv.text(in: r) ?? ""
+        }
+    }
 }

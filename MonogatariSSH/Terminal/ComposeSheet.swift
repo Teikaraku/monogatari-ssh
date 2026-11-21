@@ -6,6 +6,8 @@ import NIOCore
 /// 用 bracketed paste 发送，多行内容不会被逐行执行；可选发送后自动回车。
 struct ComposeSheet: View {
     @ObservedObject var session: TerminalSession
+    /// 打开时预填的内容
+    var seed: String = ""
     @EnvironmentObject var settings: AppSettings
     @Environment(\.dismiss) var dismiss
     @State private var text = ""
@@ -126,7 +128,10 @@ struct ComposeSheet: View {
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .onAppear { focused = true }
+            .onAppear {
+                if text.isEmpty && !seed.isEmpty { text = seed }
+                focused = true
+            }
             .sheet(isPresented: $pickingFile) {
                 RemoteFilePicker(session: session) { path in
                     text += (text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") ? "" : " ") + "@" + path + " "

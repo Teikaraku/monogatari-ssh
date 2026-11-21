@@ -48,6 +48,7 @@ struct TerminalScreen: View {
     @State private var showTmux = false
     @State private var showSlash = false
     @State private var showHistory = false
+    @State private var composeSeed = ""
     @State private var keyboardVisible = false
     @State private var editingHost = false
     @State private var renaming = false
@@ -116,6 +117,7 @@ struct TerminalScreen: View {
         }
         .onAppear {
             sessions.visibleID = session.id
+            session.terminalView.onTwoFingerSwipe = { d in cycle(d) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 _ = session.terminalView.becomeFirstResponder()
             }
@@ -125,7 +127,10 @@ struct TerminalScreen: View {
     private func receivers<V: View>(_ v: V) -> some View {
         v
         .onReceive(NotificationCenter.default.publisher(for: .monoShowCompose)) { n in
-            if n.object as? UUID == session.id { showCompose = true }
+            if n.object as? UUID == session.id {
+                composeSeed = n.userInfo?["seed"] as? String ?? ""
+                showCompose = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .monoShowSnippets)) { n in
             if n.object as? UUID == session.id { showSnippets = true }
@@ -161,7 +166,7 @@ struct TerminalScreen: View {
         .sheet(isPresented: $showTmux, onDismiss: refocus) { TmuxManagerSheet(session: session) }
         .sheet(isPresented: $showStatus, onDismiss: refocus) { ServerStatusSheet(session: session) }
         .sheet(isPresented: $showHistory, onDismiss: refocus) { HistorySheet(session: session) }
-        .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
+        .sheet(isPresented: $showCompose, onDismiss: { composeSeed = ""; refocus() }) { ComposeSheet(session: session, seed: composeSeed) }
         .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
         .sheet(isPresented: $editingHost) { HostEditView(host: store.host(session.host.id)) }
         .sheet(isPresented: $showInfo, onDismiss: refocus) { HostInfoSheet(host: session.host) }
@@ -195,6 +200,27 @@ struct TerminalScreen: View {
             } else {
                 Text("首次连接 \(p.host):\(p.port)\n\(p.keyType)\n\(p.fingerprint)\n\n确认这是你的服务器后再继续。")
             }
+        }
+        .confirmationDialog("粘贴 \(session.pendingPaste?.split(separator: "\n").count ?? 0) 行内容？",
+                            isPresented: Binding(get: { session.pendingPaste != nil }, set: { if !$0 { session.pendingPaste = nil } }),
+                            titleVisibility: .visible) {
+            Button("粘贴（每行会立即执行）", role: .destructive) {
+                if let p = session.pendingPaste { session.terminalView.pasteText(p) }
+                session.pendingPaste = nil
+            }
+            Button("合并为一行再粘贴") {
+                if let p = session.pendingPaste {
+                    session.terminalView.pasteText(p.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " "))
+                }
+                session.pendingPaste = nil
+            }
+            Button("用写作框编辑") {
+                composeSeed = session.pendingPaste ?? ""
+                session.pendingPaste = nil
+                showCompose = true
+            }
+        } message: {
+            Text(String((session.pendingPaste ?? "").prefix(300)))
         }
         .alert("重命名会话", isPresented: $renaming) {
             TextField(session.host.displayName, text: $renameText)

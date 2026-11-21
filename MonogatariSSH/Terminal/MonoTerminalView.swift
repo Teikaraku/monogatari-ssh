@@ -12,6 +12,8 @@ import SwiftTerm
 final class MonoTerminalView: TerminalView {
     var onFontSizeChange: ((CGFloat) -> Void)?
     var onUserScroll: (() -> Void)?
+    /// 双指左右滑：-1 上一个会话，+1 下一个
+    var onTwoFingerSwipe: ((Int) -> Void)?
     /// 为 true 时（tmux 会话），备用屏未开鼠标就不发方向键，避免误操作 shell 历史 / agent 选项
     var suppressArrowScroll = false
     /// 备用屏需要鼠标模式但未开启时回调（用于提示一键开启 tmux 鼠标）
@@ -57,6 +59,14 @@ final class MonoTerminalView: TerminalView {
         addGestureRecognizer(cursorTap)
         self.cursorTap = cursorTap
 
+        for dir in [UISwipeGestureRecognizer.Direction.left, .right] {
+            let sw = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
+            sw.direction = dir
+            sw.numberOfTouchesRequired = 2
+            sw.delegate = gestureHelper
+            addGestureRecognizer(sw)
+        }
+
         pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = gestureHelper
         addGestureRecognizer(pinch)
@@ -89,6 +99,12 @@ final class MonoTerminalView: TerminalView {
 
     fileprivate func isPinch(_ g: UIGestureRecognizer) -> Bool { g === pinch }
     fileprivate func isCursorTap(_ g: UIGestureRecognizer) -> Bool { g === cursorTap }
+
+    @objc private func handleSwipe(_ g: UISwipeGestureRecognizer) {
+        guard let cb = onTwoFingerSwipe else { return }
+        Haptics.tap()
+        cb(g.direction == .left ? 1 : -1)
+    }
 
     /// 点按光标所在行：发送左右方向键把光标移过去（编辑 agent 输入 / 命令行）。
     /// 仅在键盘已弹出、普通屏、停在底部时生效；按字符数而非格数计算（中文占两格只需一次方向键）。
@@ -242,7 +258,7 @@ private final class GestureHelper: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let owner else { return false }
-        if owner.isPinch(g) || owner.isCursorTap(g) { return true }
+        if owner.isPinch(g) || owner.isCursorTap(g) || g is UISwipeGestureRecognizer { return true }
         return owner.shouldBeginWheel()
     }
 
