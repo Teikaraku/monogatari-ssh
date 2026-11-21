@@ -37,9 +37,7 @@ struct HostListView: View {
         .overlay {
             if store.hosts.isEmpty {
                 ContentUnavailableView {
-                    Label("还没有主机", systemImage: "desktopcomputer")
-                } description: {
-                    Text("添加一台服务器，开始用 Claude Code 远程干活")
+                    Label("暂无主机", systemImage: "desktopcomputer")
                 } actions: {
                     Button("添加主机") { adding = true }.buttonStyle(.borderedProminent)
                 }
@@ -168,8 +166,6 @@ struct HostEditView: View {
                         }
                     } header: {
                         Text("Agent")
-                    } footer: {
-                        Text(agentFooter)
                     }
                 }
 
@@ -253,15 +249,6 @@ struct HostEditView: View {
                 if portText.isEmpty || Int(portText) == 22 || Int(portText) == 23 { portText = "" }
                 host.port = p.defaultPort
             }
-        }
-    }
-
-    var agentFooter: String {
-        switch (host.restore, host.agent) {
-        case (.tmux, .none): return "每次连接都会接回同一个 tmux 会话，断网/切后台后 agent 继续运行。已为手机滑动优化 tmux 滚轮。"
-        case (.tmux, _): return "首次连接会在 tmux 里启动 \(host.agent.title)；之后再连接直接接回现场，不会重复启动。"
-        case (.none, .none): return "建议给跑 agent 的主机开启 tmux 会话恢复：手机锁屏断线后任务不会中断。"
-        default: return "连接成功后自动执行。建议同时开启 tmux 会话恢复，防止断线中断任务。"
         }
     }
 
@@ -371,8 +358,6 @@ struct ForwardsEditor: View {
             .onDelete { forwards.remove(atOffsets: $0) }
             Section {
                 Button("添加转发", systemImage: "plus") { forwards.append(PortForward()) }
-            } footer: {
-                Text("连接后在手机本地监听端口，经 SSH 转发到远端，例如在 Safari 打开 localhost:3000 预览 agent 跑起来的网页。")
             }
         }
         .navigationTitle("端口转发")

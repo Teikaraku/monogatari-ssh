@@ -17,8 +17,6 @@ struct BarKeysEditor: View {
                 .onDelete { ids.remove(atOffsets: $0); save() }
             } header: {
                 Text("已启用（\(ids.count)）")
-            } footer: {
-                Text("第一行固定为 esc / tab / ctrl / alt / 方向键 / 收起键盘。这里调整第二行（可横向滑动），拖动右侧把手排序。")
             }
 
             Section("可添加") {
@@ -45,13 +43,11 @@ struct BarKeysEditor: View {
                         save()
                         Haptics.success()
                     } label: {
-                        Label("使用「\(name)」方案", systemImage: symbol)
+                        Label(name, systemImage: symbol)
                     }
                 }
             } header: {
                 Text("预设方案")
-            } footer: {
-                Text("Agent：Claude Code 常用操作；Shell：控制键与管道符号；Vim：编辑器符号、F 键与按词移动。")
             }
         }
         .environment(\.editMode, .constant(.active))

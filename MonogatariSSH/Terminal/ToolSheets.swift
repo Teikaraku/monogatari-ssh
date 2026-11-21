@@ -48,8 +48,7 @@ struct TmuxManagerSheet: View {
                     Text("服务器上的会话")
                 } footer: {
                     if let error { Text(error).foregroundStyle(.red) }
-                    else if !loading && items.isEmpty { Text("还没有 tmux 会话。") }
-                    else { Text("点按在新的终端里接入；左滑可结束会话。会话在服务器上持续运行，断网也不影响。") }
+                    else if !loading && items.isEmpty { Text("暂无会话") }
                 }
 
                 Section {
@@ -69,9 +68,7 @@ struct TmuxManagerSheet: View {
                         Label("新建并打开", systemImage: "plus.rectangle.on.rectangle")
                     }
                 } header: {
-                    Text("新建 agent 会话")
-                } footer: {
-                    Text("在同一台服务器上并行跑多个 agent：每个会话独立的 tmux，互不干扰，在「会话」页之间切换。")
+                    Text("新建会话")
                 }
             }
             .overlay { if loading && items.isEmpty { ProgressView() } }
@@ -240,7 +237,7 @@ struct ServerStatusSheet: View {
                     }
                     Section("运行中的 agent") {
                         if s.agents.isEmpty {
-                            Text("没有检测到 claude / codex / gemini 进程").foregroundStyle(.secondary)
+                            Text("无").foregroundStyle(.secondary)
                         } else {
                             ForEach(s.agents, id: \.self) { a in
                                 Label(a, systemImage: "sparkles").font(.callout.monospaced())

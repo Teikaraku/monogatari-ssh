@@ -301,8 +301,6 @@ struct QuickConnectSheet: View {
                         if let s = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) { target = s }
                     }
                     .labelStyle(.titleAndIcon)
-                } footer: {
-                    Text("支持 user@host、user@host:port，或直接粘贴 ssh -p 端口 user@host")
                 }
                 Section { Toggle("保存到主机列表", isOn: $save) }
             }

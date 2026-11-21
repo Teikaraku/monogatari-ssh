@@ -21,11 +21,9 @@ struct SessionsView: View {
         .overlay {
             if sessions.sessions.isEmpty {
                 ContentUnavailableView {
-                    Label("没有活动会话", systemImage: "apple.terminal")
-                } description: {
-                    Text("打开一台主机后，会话会显示在这里；切换页面不会断开，agent 状态一目了然。")
+                    Label("暂无会话", systemImage: "apple.terminal")
                 } actions: {
-                    Button("去选择主机") {
+                    Button("选择主机") {
                         openTab(.home)
                         DispatchQueue.main.async { sessions.path.append(Route.hosts) }
                     }

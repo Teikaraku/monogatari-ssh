@@ -69,7 +69,7 @@ struct SSHConfigImportView: View {
                 } header: {
                     Text("ssh config")
                 } footer: {
-                    Text("在电脑上执行 cat ~/.ssh/config 复制过来。会读取 Host / HostName / Port / User / ProxyJump；密码和私钥需要导入后单独设置。")
+                    Text("密码和私钥需导入后单独设置")
                 }
                 if !entries.isEmpty {
                     Section("将导入 \(entries.filter(\.selected).count) 台主机") {

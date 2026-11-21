@@ -7,14 +7,6 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                NavigationLink { GuideView() } label: {
-                    HStack(spacing: 12) {
-                        IconTile(symbol: "book.fill", colors: Color.tileOrange)
-                        Text("功能指南")
-                    }
-                }
-            }
-            Section {
                 HStack(spacing: 12) {
                     IconTile(symbol: "plus.magnifyingglass", colors: Color.tileBlue)
                     Stepper("字号 \(Int(settings.fontSize))", value: $settings.fontSize, in: 8...30, step: 1)
@@ -49,8 +41,6 @@ struct SettingsView: View {
                     .listRowInsets(EdgeInsets())
             } header: {
                 Text("终端")
-            } footer: {
-                Text("在终端里双指捏合也能实时调整字号。点按移动光标：键盘弹出时点一下输入行的某个位置，光标就移过去，方便修改 agent 提示词或长命令。")
             }
 
             Section {
@@ -82,8 +72,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("滑动与性能")
-            } footer: {
-                Text("普通输出使用系统原生滚动；在 tmux、vim、less 等全屏程序里，单指滑动会转换为带惯性的滚轮，长输出也能顺滑翻阅。Metal 渲染可显著降低大量输出时的掉帧，修改后对新会话生效。")
             }
 
             Section {
@@ -117,8 +105,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("AI Agent")
-            } footer: {
-                Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。后台通知：agent 从「工作中」变成「等待确认 / 完成」、响铃或发出 OSC 9/777 通知时提醒你（iOS 只给后台约 30 秒存活时间，长时间锁屏后回来会自动重连并接回 tmux）。")
             }
 
             Section {
@@ -134,7 +120,7 @@ struct SettingsView: View {
             } header: {
                 Text("Agent 启动命令")
             } footer: {
-                Text("「连接后启动」与「新建 agent 会话」使用的命令，可带参数，例如 claude --model opus 或 ~/.local/bin/claude。留空使用默认。")
+                Text("留空使用默认命令")
             }
             .font(.body.monospaced())
             .textInputAutocapitalization(.never)
@@ -171,8 +157,6 @@ struct SettingsView: View {
                 LabeledContent("SSH", value: "Citadel / SwiftNIO SSH")
             } header: {
                 Text("关于")
-            } footer: {
-                Text("物语SSH · 为在手机上驾驭 AI agent 而做").frame(maxWidth: .infinity).padding(.top, 12)
             }
         }
         .navigationTitle("设置")
@@ -223,7 +207,7 @@ struct PhrasesEditor: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             } footer: {
-                Text("每行一条，格式「按钮名=插入内容」。例如：\n审查=请审查这次改动，指出潜在 bug。")
+                Text("每行一条：按钮名=内容")
             }
             Section {
                 Button("恢复默认", role: .destructive) { raw = ComposeSheet.defaultPhrases }

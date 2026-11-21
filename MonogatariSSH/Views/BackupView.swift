@@ -35,17 +35,13 @@ struct BackupView: View {
             } header: {
                 Text("导出")
             } footer: {
-                Text(includeSecrets
-                     ? "⚠️ 备份文件将包含明文密码和私钥，请只保存在你信任的地方。"
-                     : "默认不含密码和私钥，导入后需重新填写密码 / 导入密钥。")
+                if includeSecrets { Text("备份文件将包含明文密码和私钥") }
             }
 
             Section {
                 Button("从文件导入", systemImage: "doc.badge.arrow.down") { importing = true }
             } header: {
                 Text("导入")
-            } footer: {
-                Text("按 ID 合并：已存在的条目会被更新，不会删除现有数据。")
             }
 
             if let message {

@@ -32,8 +32,6 @@ struct KeyListView: View {
             if store.keys.isEmpty {
                 ContentUnavailableView {
                     Label("没有密钥", systemImage: "key")
-                } description: {
-                    Text("生成一把 ED25519 密钥，或导入已有私钥")
                 } actions: {
                     Button("生成密钥") { generating = true }.buttonStyle(.borderedProminent)
                     Button("导入私钥") { importing = true }
@@ -100,7 +98,7 @@ struct KeyDetailView: View {
                     }
                     Button("复制私钥", systemImage: "doc.on.doc") { Clipboard.copy(priv) }
                 }
-            } header: { Text("私钥") } footer: { Text("私钥只保存在本机钥匙串，不会同步或上传。") }
+            } header: { Text("私钥") }
         }
         .navigationTitle(key.name)
     }
@@ -131,7 +129,7 @@ struct KeyImportView: View {
                         Button("选择文件", systemImage: "folder") { picking = true }
                     }
                     .buttonStyle(.borderless)
-                } header: { Text("私钥") } footer: { Text("支持 OpenSSH 格式的 ED25519 / RSA，PEM 格式的 ECDSA。") }
+                } header: { Text("私钥") }
                 Section {
                     IconSecureField(symbol: "lock.fill", colors: Color.tilePurple, placeholder: "口令（没有则留空）", text: $passphrase)
                 }
@@ -188,8 +186,6 @@ struct KeyGenerateView: View {
                         Button("复制安装命令", systemImage: "terminal") {
                             Clipboard.copy("mkdir -p ~/.ssh && echo '\(g.publicKey)' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys")
                         }
-                    } footer: {
-                        Text("把安装命令粘贴到服务器上执行一次，之后即可用这把密钥登录。")
                     }
                 } else {
                     Section { IconField(symbol: "tag.fill", colors: Color.tileBlue, placeholder: "名称", text: $name) }
@@ -244,8 +240,7 @@ struct KnownHostsView: View {
         }
         .overlay {
             if store.knownHosts.isEmpty {
-                ContentUnavailableView("没有已信任的指纹", systemImage: "person.text.rectangle",
-                                       description: Text("首次连接服务器时确认的主机指纹会保存在这里，用于防范中间人攻击。"))
+                ContentUnavailableView("暂无指纹", systemImage: "person.text.rectangle")
             }
         }
         .navigationTitle("指纹")
@@ -343,7 +338,7 @@ struct SnippetEditor: View {
                     Toggle("发送后自动回车", isOn: $snippet.autoReturn)
                     Toggle("作为粘贴发送", isOn: $snippet.asPaste)
                 } footer: {
-                    Text("多行提示词建议开启「作为粘贴发送」，agent 会把它当成一整段输入而不是逐行执行。命令里可写 {{变量}}，运行时会先让你填写，例如 git commit -m \"{{说明}}\"。")
+                    Text("命令中可使用 {{变量}}")
                 }
             }
             .navigationTitle(snippet.name.isEmpty ? "新建片段" : "编辑片段")
@@ -389,8 +384,7 @@ struct TransfersView: View {
         }
         .overlay {
             if store.transfers.isEmpty {
-                ContentUnavailableView("没有传输记录", systemImage: "arrow.up.arrow.down",
-                                       description: Text("在终端右上角打开文件管理，即可通过 SFTP 上传下载。"))
+                ContentUnavailableView("暂无传输记录", systemImage: "arrow.up.arrow.down")
             }
         }
         .navigationTitle("传输")

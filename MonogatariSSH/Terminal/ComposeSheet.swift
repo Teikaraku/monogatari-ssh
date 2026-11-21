@@ -68,7 +68,7 @@ struct ComposeSheet: View {
                     .padding(.horizontal, 12)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text("写给 \(session.host.agent == .none ? "终端" : session.host.agent.title) 的内容…\n支持多行、中文输入法、粘贴图片路径等")
+                            Text("输入内容")
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 17).padding(.vertical, 8)
                                 .allowsHitTesting(false)
