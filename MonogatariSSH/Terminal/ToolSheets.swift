@@ -412,3 +412,74 @@ struct SlashPalette: View {
         dismiss()
     }
 }
+
+// MARK: - 服务器命令历史
+
+/// 读取服务器上的 bash / zsh 历史，去重后最新的在前；点按填入、左滑直接运行
+struct HistorySheet: View {
+    @ObservedObject var session: TerminalSession
+    @Environment(\.dismiss) var dismiss
+    @State private var items: [String] = []
+    @State private var query = ""
+    @State private var loading = true
+    @State private var error: String?
+
+    private var filtered: [String] {
+        let q = query.lowercased()
+        return q.isEmpty ? items : items.filter { $0.lowercased().contains(q) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filtered, id: \.self) { cmd in
+                Button {
+                    session.send(text: cmd)
+                    Haptics.tap()
+                    dismiss()
+                } label: {
+                    Text(cmd).font(.callout.monospaced()).lineLimit(3).foregroundStyle(.primary)
+                }
+                .swipeActions {
+                    Button {
+                        session.send(text: cmd + "\r")
+                        dismiss()
+                    } label: { Label("运行", systemImage: "play.fill") }.tint(.green)
+                    Button { Clipboard.copy(cmd) } label: { Label("复制", systemImage: "doc.on.doc") }.tint(.blue)
+                }
+            }
+            .listStyle(.plain)
+            .overlay {
+                if loading { ProgressView() }
+                else if let error { ContentUnavailableView("读取失败", systemImage: "exclamationmark.triangle", description: Text(error)) }
+                else if items.isEmpty { ContentUnavailableView("没有历史记录", systemImage: "clock") }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索历史命令")
+            .navigationTitle("命令历史")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") } }
+            }
+            .task { await load() }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func load() async {
+        defer { loading = false }
+        guard let t = session.sshTransport else { error = "当前会话不支持"; return }
+        do {
+            let out = try await t.exec("cat ~/.zsh_history ~/.bash_history 2>/dev/null | sed -E 's/^: [0-9]+:[0-9]+;//' | tail -n 800; true")
+            var seen = Set<String>()
+            var list: [String] = []
+            for line in out.split(separator: "\n").reversed() {
+                let cmd = line.trimmingCharacters(in: .whitespaces)
+                guard !cmd.isEmpty, cmd.count < 500, !seen.contains(cmd) else { continue }
+                seen.insert(cmd)
+                list.append(cmd)
+            }
+            items = list
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}

@@ -64,6 +64,7 @@ struct BarKey: Identifiable, Hashable {
         BarKey(id: "compose", title: "写作", symbol: "square.and.pencil", tint: .systemBlue, kind: .action(.compose), help: "用原生输入法写长内容再发送"),
         BarKey(id: "snippets", title: "片段", symbol: "text.badge.star", tint: .systemPink, kind: .action(.snippets)),
         BarKey(id: "copyScreen", title: "复制屏幕", symbol: "doc.on.doc", kind: .action(.copyScreen)),
+        BarKey(id: "history", title: "历史", symbol: "clock.arrow.circlepath", kind: .action(.history), help: "服务器命令历史"),
         BarKey(id: "search", title: "搜索", symbol: "magnifyingglass", kind: .action(.search), help: "在输出中查找"),
         BarKey(id: "select", title: "选择", symbol: "selection.pin.in.out", kind: .action(.selectMode), help: "进入文本选择模式"),
         // 控制键
@@ -110,7 +111,7 @@ final class KeyboardBar: UIInputView {
         case text(String)
         case toggleCtrl, toggleAlt
         case arrow(Arrow)
-        case compose, snippets, paste, hideKeyboard, copyScreen, search, selectMode, slashPalette
+        case compose, snippets, paste, hideKeyboard, copyScreen, search, selectMode, slashPalette, history
     }
     enum Arrow: Hashable { case up, down, left, right }
 

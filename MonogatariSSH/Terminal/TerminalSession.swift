@@ -12,6 +12,9 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
 
     let id = UUID()
     @Published var host: Host
+    /// 用户给会话起的名字（并行多个 agent 时区分用）
+    @Published var label: String = ""
+    var displayTitle: String { label.isEmpty ? host.displayName : label }
     @Published var state: State = .connecting
     /// 标题单独放：Claude Code 会高频刷新终端标题（转圈动画），不能让它重绘整个终端页
     let titleModel = TitleModel()
@@ -39,6 +42,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     private var reconnecting = false
     private(set) var wasConnectedOnce = false
     @Published private(set) var agentStatus: AgentStatus = .unknown
+    /// 本轮开始工作的时间（用于显示已工作时长）
+    @Published private(set) var workingSince: Date?
     /// Claude Code 当前模式（计划 / 自动接受 / 跳过权限），nil = 普通
     @Published private(set) var agentMode: String?
     private var statusTimer: Timer?
@@ -137,6 +142,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         guard new != agentStatus else { return }
         let old = agentStatus
         agentStatus = new
+        workingSince = new == .working ? (old == .working ? workingSince : Date()) : nil
         // 工作 → 等待确认 / 空闲：前台且没在看这个会话时弹应用内提示
         if old == .working, !Notifier.appInBackground, SessionManager.shared.visibleID != id,
            new == .needsInput || new == .idle {
@@ -347,6 +353,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         case .search: NotificationCenter.default.post(name: .monoShowSearch, object: id)
         case .selectMode: NotificationCenter.default.post(name: .monoShowOutput, object: id)
         case .slashPalette: NotificationCenter.default.post(name: .monoShowSlash, object: id)
+        case .history: NotificationCenter.default.post(name: .monoShowHistory, object: id)
         }
     }
 
@@ -454,7 +461,15 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             }
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
-            if let url = URL(string: link) { Task { @MainActor in UIApplication.shared.open(url) } }
+            guard let url = URL(string: link) else { return }
+            onMain { o in
+                // http(s) 在应用内浏览器打开，保持连接不进后台
+                if url.scheme == "http" || url.scheme == "https" {
+                    NotificationCenter.default.post(name: .monoOpenURL, object: o.id, userInfo: ["url": url])
+                } else {
+                    UIApplication.shared.open(url)
+                }
+            }
         }
     }
 }
@@ -533,6 +548,8 @@ extension Notification.Name {
     static let monoShowSearch = Notification.Name("mono.showSearch")
     static let monoShowOutput = Notification.Name("mono.showOutput")
     static let monoShowSlash = Notification.Name("mono.showSlash")
+    static let monoOpenURL = Notification.Name("mono.openURL")
+    static let monoShowHistory = Notification.Name("mono.showHistory")
 }
 
 /// 管理所有活动会话（「会话」页）。

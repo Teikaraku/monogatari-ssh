@@ -47,8 +47,11 @@ struct TerminalScreen: View {
     @State private var showOutput = false
     @State private var showTmux = false
     @State private var showSlash = false
+    @State private var showHistory = false
     @State private var keyboardVisible = false
     @State private var editingHost = false
+    @State private var renaming = false
+    @State private var renameText = ""
     @State private var webURL: WebURL?
     @AppStorage("terminalTipsSeen") private var tipsSeen = false
     @State private var showStatus = false
@@ -56,6 +59,10 @@ struct TerminalScreen: View {
     private var theme: TerminalTheme { session.theme }
 
     var body: some View {
+        dialogs(sheets(receivers(core)))
+    }
+
+    private var core: some View {
         VStack(spacing: 0) {
             topBar
             if showSearch {
@@ -100,6 +107,10 @@ struct TerminalScreen: View {
                 _ = session.terminalView.becomeFirstResponder()
             }
         }
+    }
+
+    private func receivers<V: View>(_ v: V) -> some View {
+        v
         .onReceive(NotificationCenter.default.publisher(for: .monoShowCompose)) { n in
             if n.object as? UUID == session.id { showCompose = true }
         }
@@ -115,17 +126,28 @@ struct TerminalScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .monoShowHistory)) { n in
+            if n.object as? UUID == session.id { showHistory = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .monoOpenURL)) { n in
+            if n.object as? UUID == session.id, let url = n.userInfo?["url"] as? URL { webURL = WebURL(url: url) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .monoShowSlash)) { n in
             if n.object as? UUID == session.id { showSlash = true }
         }
-        .sheet(isPresented: $showSlash, onDismiss: refocus) { SlashPalette(session: session) }
         .onReceive(NotificationCenter.default.publisher(for: .monoShowOutput)) { n in
             if n.object as? UUID == session.id { showOutput = true }
         }
+    }
+
+    private func sheets<V: View>(_ v: V) -> some View {
+        v
+        .sheet(isPresented: $showSlash, onDismiss: refocus) { SlashPalette(session: session) }
         .sheet(isPresented: $showOutput, onDismiss: refocus) { OutputBrowser(session: session) }
         .sheet(item: $webURL, onDismiss: refocus) { w in SafariView(url: w.url).ignoresSafeArea() }
         .sheet(isPresented: $showTmux, onDismiss: refocus) { TmuxManagerSheet(session: session) }
         .sheet(isPresented: $showStatus, onDismiss: refocus) { ServerStatusSheet(session: session) }
+        .sheet(isPresented: $showHistory, onDismiss: refocus) { HistorySheet(session: session) }
         .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
         .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
         .sheet(isPresented: $editingHost) { HostEditView(host: store.host(session.host.id)) }
@@ -141,6 +163,10 @@ struct TerminalScreen: View {
             }
             .presentationDetents([.medium])
         }
+    }
+
+    private func dialogs<V: View>(_ v: V) -> some View {
+        v
         .alert(session.pendingHostKey?.oldFingerprint == nil ? "新的主机指纹" : "⚠️ 主机指纹已变化", isPresented: Binding(get: { session.pendingHostKey != nil }, set: { if !$0 { session.pendingHostKey?.reply(false) } }),
                presenting: session.pendingHostKey) { p in
             if p.oldFingerprint == nil {
@@ -157,6 +183,11 @@ struct TerminalScreen: View {
                 Text("首次连接 \(p.host):\(p.port)\n\(p.keyType)\n\(p.fingerprint)\n\n确认这是你的服务器后再继续。")
             }
         }
+        .alert("重命名会话", isPresented: $renaming) {
+            TextField(session.host.displayName, text: $renameText)
+            Button("确定") { session.label = renameText.trimmingCharacters(in: .whitespaces) }
+            Button("取消", role: .cancel) {}
+        } message: { Text("例如「前端重构」「写测试」，方便区分并行的 agent") }
         .confirmationDialog("断开并关闭会话？", isPresented: $confirmClose, titleVisibility: .visible) {
             Button("断开", role: .destructive) { closeSession() }
         } message: {
@@ -184,10 +215,14 @@ struct TerminalScreen: View {
                             guard s.id != session.id else { return }
                             switchTo(s)
                         } label: {
-                            Label("\(s.host.displayName)\(s.host.restore == .tmux ? " · " + s.host.effectiveTmuxName : "")\(s.agentStatus.label.map { " · " + $0 } ?? "")",
+                            Label("\(s.displayTitle)\(s.host.restore == .tmux ? " · " + s.host.effectiveTmuxName : "")\(s.agentStatus.label.map { " · " + $0 } ?? "")",
                                   systemImage: s.id == session.id ? "checkmark" : s.agentStatus.symbol)
                         }
                     }
+                }
+                Button("重命名会话", systemImage: "pencil") {
+                    renameText = session.label
+                    renaming = true
                 }
                 if session.host.proto == .ssh {
                     Button("新开同一主机的会话", systemImage: "plus.rectangle.on.rectangle") {
@@ -200,7 +235,7 @@ struct TerminalScreen: View {
             } label: {
                 VStack(spacing: 1) {
                     HStack(spacing: 3) {
-                        Text(session.host.displayName)
+                        Text(session.displayTitle)
                             .font(.headline)
                             .lineLimit(1)
                         if sessions.sessions.count > 1 {
@@ -229,6 +264,7 @@ struct TerminalScreen: View {
                         Divider()
                         Button("tmux 会话 / 并行 agent", systemImage: "square.stack.3d.up") { showTmux = true }
                         Button("服务器状态", systemImage: "gauge.with.dots.needle.33percent") { showStatus = true }
+                        Button("命令历史", systemImage: "clock.arrow.circlepath") { showHistory = true }
                     }
                     let fwd = session.host.forwards.filter(\.enabled)
                     if !fwd.isEmpty {
@@ -275,6 +311,9 @@ struct TerminalScreen: View {
                 HStack(spacing: 4) {
                     Circle().fill(session.agentStatus.color).frame(width: 6, height: 6)
                     Text(label)
+                    if let since = session.workingSince {
+                        Text(since, style: .timer).monospacedDigit()
+                    }
                     if let mode = session.agentMode {
                         Text("· " + mode).foregroundStyle(mode == "跳过权限" ? .red : .purple)
                     }

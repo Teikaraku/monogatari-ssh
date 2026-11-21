@@ -65,7 +65,7 @@ struct SessionRow: View {
                     }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(session.host.displayName).font(.title3.weight(.medium)).foregroundStyle(.primary)
+                        Text(session.displayTitle).font(.title3.weight(.medium)).foregroundStyle(.primary)
                         if session.host.restore == .tmux {
                             Text(session.host.effectiveTmuxName)
                                 .font(.caption2.monospaced())
@@ -75,9 +75,14 @@ struct SessionRow: View {
                         }
                     }
                     if let label = session.agentStatus.label, session.state == .connected {
-                        Label(label, systemImage: session.agentStatus.symbol)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(session.agentStatus.color)
+                        HStack(spacing: 4) {
+                            Label(label, systemImage: session.agentStatus.symbol)
+                            if let since = session.workingSince {
+                                Text(since, style: .timer).monospacedDigit()
+                            }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(session.agentStatus.color)
                     }
                     Text(subtitle).font(.subheadline.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                     if session.agentStatus == .needsInput && session.state == .connected {
