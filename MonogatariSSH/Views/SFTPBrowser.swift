@@ -3,6 +3,7 @@ import Citadel
 import NIOCore
 import UniformTypeIdentifiers
 import QuickLook
+import PhotosUI
 
 struct EditableFile: Identifiable {
     var id: String { entry.path }
@@ -269,6 +270,8 @@ struct SFTPBrowser: View {
     @State private var importing = false
     @State private var newFolder = false
     @State private var newFile = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var pickingPhotos = false
     @State private var fileName = ""
     @State private var folderName = ""
     @State private var renaming: RemoteEntry?
@@ -281,6 +284,10 @@ struct SFTPBrowser: View {
     }
 
     var body: some View {
+        dialogs(content)
+    }
+
+    private var content: some View {
         List {
             if model.path != "/" && !model.path.isEmpty && model.query.isEmpty {
                 Button {
@@ -331,6 +338,7 @@ struct SFTPBrowser: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("上传文件", systemImage: "square.and.arrow.up") { importing = true }
+                    Button("从相册上传", systemImage: "photo.on.rectangle") { pickingPhotos = true }
                     Button("新建文件夹", systemImage: "folder.badge.plus") { folderName = ""; newFolder = true }
                     Button("新建文件", systemImage: "doc.badge.plus") { fileName = "CLAUDE.md"; newFile = true }
                     Button("前往路径…", systemImage: "arrow.right.circle") { pathText = model.path; pathInput = true }
@@ -353,8 +361,27 @@ struct SFTPBrowser: View {
                 Task { for u in urls { await model.upload(u) } }
             }
         }
+        .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 20, matching: .any(of: [.images, .videos]))
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            photoItems = []
+            Task {
+                for (i, item) in items.enumerated() {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent("IMG-\(f.string(from: Date()))-\(i + 1).\(ext)")
+                    try? data.write(to: url)
+                    await model.upload(url)
+                }
+            }
+        }
         .quickLookPreview($model.preview)
         .sheet(item: $model.editing) { f in RemoteTextEditor(model: model, file: f) }
+    }
+
+    private func dialogs<V: View>(_ v: V) -> some View {
+        v
         .alert("新建文件", isPresented: $newFile) {
             TextField("文件名", text: $fileName).textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("创建并编辑") {

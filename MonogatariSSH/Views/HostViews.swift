@@ -6,10 +6,17 @@ struct HostListView: View {
     @State private var importing = false
     @State private var quick = false
     @State private var query = ""
+    @AppStorage("hostSort") private var sort = "created"
 
     var filtered: [Host] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let list = store.hosts.sorted { $0.createdAt < $1.createdAt }
+        let list = store.hosts.sorted { a, b in
+            switch sort {
+            case "name": return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
+            case "recent": return (a.lastConnected ?? .distantPast) > (b.lastConnected ?? .distantPast)
+            default: return a.createdAt < b.createdAt
+            }
+        }
         guard !q.isEmpty else { return list }
         return list.filter { $0.displayName.lowercased().contains(q) || $0.hostname.lowercased().contains(q) || $0.username.lowercased().contains(q) }
     }
@@ -43,6 +50,15 @@ struct HostListView: View {
         .searchable(text: $query, prompt: "搜索主机")
         .navigationTitle("主机")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("排序", selection: $sort) {
+                        Label("添加时间", systemImage: "calendar").tag("created")
+                        Label("名称", systemImage: "textformat.abc").tag("name")
+                        Label("最近连接", systemImage: "clock").tag("recent")
+                    }
+                } label: { Image(systemName: "arrow.up.arrow.down") }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("新建主机", systemImage: "plus") { adding = true }

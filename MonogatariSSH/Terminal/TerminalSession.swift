@@ -283,7 +283,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             if !agentCmd.isEmpty { cmd += " " + shellQuote(agentCmd + "; exec $SHELL") }
             if AppSettings.shared.tmuxTuning {
                 // 鼠标滚轮进入回滚、5 万行历史、每次滚轮 1 行（配合惯性滑动更跟手）、Esc 无延迟（Claude Code 中断更灵敏）
-                cmd += " \\; set -g mouse on \\; set -g history-limit 50000 \\; set -s escape-time 10"
+                cmd += " \\; set -g mouse on \\; set -g history-limit 50000 \\; set -s escape-time 10 \\; set -g set-clipboard on"
                 cmd += " \\; bind -T copy-mode WheelUpPane send -N1 -X scroll-up \\; bind -T copy-mode WheelDownPane send -N1 -X scroll-down"
                 cmd += " \\; bind -T copy-mode-vi WheelUpPane send -N1 -X scroll-up \\; bind -T copy-mode-vi WheelDownPane send -N1 -X scroll-down"
             }
