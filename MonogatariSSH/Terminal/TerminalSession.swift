@@ -137,6 +137,12 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         guard new != agentStatus else { return }
         let old = agentStatus
         agentStatus = new
+        // 工作 → 等待确认 / 空闲：前台且没在看这个会话时弹应用内提示
+        if old == .working, !Notifier.appInBackground, SessionManager.shared.visibleID != id,
+           new == .needsInput || new == .idle {
+            Toast.shared.show("\(host.displayName)：\(new == .needsInput ? "需要确认" : "任务完成")")
+            Haptics.success()
+        }
         // 工作 → 等待确认 / 空闲：提醒（app 在后台时）
         if old == .working {
             switch new {
@@ -145,6 +151,13 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             default: break
             }
         }
+    }
+
+    /// 设置变化后同步到已打开的终端
+    func applyTerminalSettings() {
+        let st = AppSettings.shared
+        terminalView.changeScrollback(max(1000, st.scrollback))
+        terminalView.setCursorStyle(Self.cursorStyle(st.cursorStyle, blink: st.cursorBlink))
     }
 
     /// 设置变化后重建键盘辅助栏
@@ -528,6 +541,8 @@ final class SessionManager: ObservableObject {
     static let shared = SessionManager()
     @Published var sessions: [TerminalSession] = [] { didSet { persist() } }
     @Published var path = NavigationPath()
+    /// 当前正在查看的终端会话
+    var visibleID: UUID?
     /// 上次 app 退出前开着的会话（主机快照，含 tmux 会话名），用于一键恢复
     @Published private(set) var restorable: [Host] = []
 

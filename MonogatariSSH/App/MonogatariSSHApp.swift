@@ -107,3 +107,15 @@ extension SessionManager {
         path.append(Route.terminal(s.id))
     }
 }
+
+/// 隐藏导航栏的页面（终端）也能从左边缘右滑返回
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1
+    }
+}

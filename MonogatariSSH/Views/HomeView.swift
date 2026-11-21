@@ -224,6 +224,11 @@ struct HostInfoSheet: View {
                     }
                     CopyRow(symbol: "terminal.fill", colors: Color.tileGray, title: "SSH 命令", value: host.sshCommand)
                 }
+                if !host.notes.isEmpty {
+                    Section("备注") {
+                        Text(host.notes).textSelection(.enabled)
+                    }
+                }
                 if let fp = store.knownHost(host: host.hostname, port: host.port) {
                     Section("主机指纹") {
                         CopyRow(symbol: "touchid", colors: Color.tilePink, title: fp.keyType, value: fp.fingerprint)

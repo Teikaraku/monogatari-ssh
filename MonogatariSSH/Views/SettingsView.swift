@@ -8,17 +8,17 @@ struct SettingsView: View {
         Form {
             Section {
                 HStack(spacing: 12) {
-                    IconTile(symbol: "textformat.size", colors: Color.tileBlue)
+                    IconTile(symbol: "plus.magnifyingglass", colors: Color.tileBlue)
                     Stepper("字号 \(Int(settings.fontSize))", value: $settings.fontSize, in: 8...30, step: 1)
                 }
                 HStack(spacing: 12) {
-                    IconTile(symbol: "textformat", colors: Color.tileIndigo)
+                    IconTile(symbol: "paintbrush.pointed.fill", colors: Color.tileIndigo)
                     Picker("字体", selection: $settings.fontName) {
                         ForEach(AppSettings.fonts, id: \.self) { Text($0.replacingOccurrences(of: "-Regular", with: "").replacingOccurrences(of: "PSMT", with: "")).tag($0) }
                     }
                 }
                 HStack(spacing: 12) {
-                    IconTile(symbol: "character.cursor.ibeam", colors: Color.tileTeal)
+                    IconTile(symbol: "cursorarrow", colors: Color.tileTeal)
                     Picker("光标", selection: $settings.cursorStyle) {
                         Text("方块").tag("block"); Text("竖线").tag("bar"); Text("下划线").tag("underline")
                     }
@@ -128,6 +128,15 @@ struct SettingsView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
 
+            Section {
+                NavigationLink { PhrasesEditor() } label: {
+                    HStack(spacing: 12) {
+                        IconTile(symbol: "text.bubble.fill", colors: Color.tileBlue)
+                        Text("写作框短语")
+                    }
+                }
+            }
+
             Section("数据") {
                 NavigationLink { BackupView() } label: {
                     HStack(spacing: 12) {
@@ -158,6 +167,9 @@ struct SettingsView: View {
         .onChange(of: settings.fontSize) { _, _ in sessions.sessions.forEach { $0.refreshFont() } }
         .onChange(of: settings.fontName) { _, _ in sessions.sessions.forEach { $0.refreshFont() } }
         .onChange(of: settings.agentBar) { _, _ in sessions.sessions.forEach { $0.rebuildBar() } }
+        .onChange(of: settings.scrollback) { _, _ in sessions.sessions.forEach { $0.applyTerminalSettings() } }
+        .onChange(of: settings.cursorStyle) { _, _ in sessions.sessions.forEach { $0.applyTerminalSettings() } }
+        .onChange(of: settings.cursorBlink) { _, _ in sessions.sessions.forEach { $0.applyTerminalSettings() } }
     }
 
     var sensitivityLabel: String {
@@ -183,5 +195,28 @@ struct FontPreview: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(theme.bgColor)
+    }
+}
+
+
+/// 编辑写作框顶部的快捷短语
+struct PhrasesEditor: View {
+    @AppStorage("composePhrases") private var raw = ComposeSheet.defaultPhrases
+    var body: some View {
+        Form {
+            Section {
+                TextEditor(text: $raw)
+                    .font(.callout.monospaced())
+                    .frame(minHeight: 260)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            } footer: {
+                Text("每行一条，格式「按钮名=插入内容」。例如：\n审查=请审查这次改动，指出潜在 bug。")
+            }
+            Section {
+                Button("恢复默认", role: .destructive) { raw = ComposeSheet.defaultPhrases }
+            }
+        }
+        .navigationTitle("写作框短语")
     }
 }

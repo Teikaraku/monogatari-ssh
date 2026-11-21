@@ -91,7 +91,11 @@ struct TerminalScreen: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(theme.isDark ? .dark : .light)
         .statusBarHidden(false)
+        .onDisappear {
+            if sessions.visibleID == session.id { sessions.visibleID = nil }
+        }
         .onAppear {
+            sessions.visibleID = session.id
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 _ = session.terminalView.becomeFirstResponder()
             }

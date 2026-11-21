@@ -217,3 +217,54 @@ struct TransferRecord: Codable, Hashable, Identifiable {
     var message: String = ""
     var date: Date = Date()
 }
+
+// MARK: - 容错解码：新版本加字段时，旧数据缺少的键用默认值，不会整体解码失败丢数据
+
+private extension KeyedDecodingContainer {
+    func v<T: Decodable>(_ key: Key, _ fallback: T) -> T {
+        (try? decodeIfPresent(T.self, forKey: key)) ?? fallback
+    }
+}
+
+extension Host {
+    enum CodingKeys: String, CodingKey {
+        case id, alias, hostname, port, username, proto, auth, keyID, jumpHostID, restore, tmuxSession, agent,
+             startupCommand, themeID, icon, forwards, keepAliveSeconds, group, notes, lastConnected, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Host()
+        id = c.v(.id, d.id)
+        alias = c.v(.alias, d.alias)
+        hostname = c.v(.hostname, d.hostname)
+        port = c.v(.port, d.port)
+        username = c.v(.username, d.username)
+        proto = c.v(.proto, d.proto)
+        auth = c.v(.auth, d.auth)
+        keyID = c.v(.keyID, d.keyID)
+        jumpHostID = c.v(.jumpHostID, d.jumpHostID)
+        restore = c.v(.restore, d.restore)
+        tmuxSession = c.v(.tmuxSession, d.tmuxSession)
+        agent = c.v(.agent, d.agent)
+        startupCommand = c.v(.startupCommand, d.startupCommand)
+        themeID = c.v(.themeID, d.themeID)
+        icon = c.v(.icon, d.icon)
+        forwards = c.v(.forwards, d.forwards)
+        keepAliveSeconds = c.v(.keepAliveSeconds, d.keepAliveSeconds)
+        group = c.v(.group, d.group)
+        notes = c.v(.notes, d.notes)
+        lastConnected = c.v(.lastConnected, d.lastConnected)
+        createdAt = c.v(.createdAt, d.createdAt)
+    }
+}
+
+extension Snippet {
+    enum CodingKeys: String, CodingKey { case id, name, command, group, autoReturn, asPaste }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: c.v(.id, UUID()), name: c.v(.name, ""), command: c.v(.command, ""),
+                  group: c.v(.group, "常用"), autoReturn: c.v(.autoReturn, true), asPaste: c.v(.asPaste, false))
+    }
+}

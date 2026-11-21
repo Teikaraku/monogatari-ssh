@@ -19,15 +19,25 @@ struct ComposeSheet: View {
         (try? JSONDecoder().decode([String].self, from: historyData)) ?? []
     }
 
-    private let quick: [(String, String)] = [
-        ("继续", "继续"),
-        ("深度思考", "ultrathink "),
-        ("中文回答", "请用中文回答。"),
-        ("先给计划", "先不要改代码，给出实现计划，等我确认。"),
-        ("跑测试", "运行测试并修复失败的用例。"),
-        ("提交", "提交当前改动，写清晰的 commit message。"),
-        ("解释报错", "解释上面的报错原因并修复。"),
-    ]
+    /// 常用短语：「设置 → 写作框短语」可编辑，每行「按钮名=内容」
+    static let defaultPhrases = """
+    继续=继续
+    深度思考=ultrathink 
+    中文回答=请用中文回答。
+    先给计划=先不要改代码，给出实现计划，等我确认。
+    跑测试=运行测试并修复失败的用例。
+    提交=提交当前改动，写清晰的 commit message。
+    解释报错=解释上面的报错原因并修复。
+    """
+    @AppStorage("composePhrases") private var phrasesRaw = ComposeSheet.defaultPhrases
+
+    private var quick: [(String, String)] {
+        phrasesRaw.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard let name = parts.first?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+            return (name, parts.count > 1 ? parts[1] : name)
+        }
+    }
 
     var body: some View {
         NavigationStack {

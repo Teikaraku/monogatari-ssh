@@ -20,6 +20,20 @@ final class AppStore: ObservableObject {
         var knownHosts: [KnownHost]
         var snippets: [Snippet]
         var transfers: [TransferRecord]?
+
+        init(hosts: [Host], keys: [SSHKeyItem], knownHosts: [KnownHost], snippets: [Snippet], transfers: [TransferRecord]?) {
+            self.hosts = hosts; self.keys = keys; self.knownHosts = knownHosts; self.snippets = snippets; self.transfers = transfers
+        }
+
+        /// 每个列表独立容错：某一类坏了不影响其他数据
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            hosts = (try? c.decode([Host].self, forKey: .hosts)) ?? []
+            keys = (try? c.decode([SSHKeyItem].self, forKey: .keys)) ?? []
+            knownHosts = (try? c.decode([KnownHost].self, forKey: .knownHosts)) ?? []
+            snippets = (try? c.decode([Snippet].self, forKey: .snippets)) ?? Snippet.presets
+            transfers = try? c.decode([TransferRecord].self, forKey: .transfers)
+        }
     }
 
     private var fileURL: URL {
@@ -29,8 +43,12 @@ final class AppStore: ObservableObject {
     }
 
     init() {
-        if let data = try? Data(contentsOf: fileURL),
-           let p = try? JSONDecoder().decode(Payload.self, from: data) {
+        let data = try? Data(contentsOf: fileURL)
+        if let data, (try? JSONDecoder().decode(Payload.self, from: data)) == nil {
+            // 解析失败：先备份原文件，绝不覆盖用户数据
+            try? data.write(to: fileURL.appendingPathExtension("bak-\(Int(Date().timeIntervalSince1970))"))
+        }
+        if let data, let p = try? JSONDecoder().decode(Payload.self, from: data) {
             hosts = p.hosts
             keys = p.keys
             knownHosts = p.knownHosts
