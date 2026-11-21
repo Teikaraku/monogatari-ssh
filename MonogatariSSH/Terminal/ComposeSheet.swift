@@ -14,6 +14,7 @@ struct ComposeSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var uploading = 0
     @State private var uploadError: String?
+    @State private var pickingFile = false
 
     private var history: [String] {
         (try? JSONDecoder().decode([String].self, from: historyData)) ?? []
@@ -88,11 +89,14 @@ struct ComposeSheet: View {
 
                 HStack {
                     Toggle(isOn: $settings.composeSendsReturn) {
-                        Label("发送后回车", systemImage: "return")
+                        Label("回车", systemImage: "return")
                     }
                     .toggleStyle(.button)
                     .buttonBorderShape(.capsule)
                     if session.sshTransport != nil {
+                        Button { pickingFile = true } label: { Label("文件", systemImage: "at") }
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
                         PhotosPicker(selection: $photoItems, maxSelectionCount: 5, matching: .images) {
                             if uploading > 0 {
                                 HStack(spacing: 4) { ProgressView().controlSize(.small); Text("上传 \(uploading)") }
@@ -123,6 +127,11 @@ struct ComposeSheet: View {
                 }
             }
             .onAppear { focused = true }
+            .sheet(isPresented: $pickingFile) {
+                RemoteFilePicker(session: session) { path in
+                    text += (text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") ? "" : " ") + "@" + path + " "
+                }
+            }
             .onChange(of: photoItems) { _, items in
                 guard !items.isEmpty else { return }
                 photoItems = []

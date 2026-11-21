@@ -354,7 +354,11 @@ struct SFTPBrowser: View {
                 } label: { Image(systemName: "ellipsis") }
             }
         }
-        .task { await model.load() }
+        .task {
+            // 优先打开终端当前所在目录
+            if let cwd = await model.session.resolveWorkingDirectory() { await model.load(cwd) }
+            if model.entries.isEmpty { await model.load() }
+        }
         .onDisappear { model.close() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
             if case .success(let urls) = r {
@@ -534,5 +538,69 @@ struct RemoteTextEditor: View {
         } catch {
             errorText = "保存失败：\(error.localizedDescription)"
         }
+    }
+}
+
+/// 精简的远程文件选择器（写作框里插入 @文件 用）
+struct RemoteFilePicker: View {
+    @StateObject private var model: SFTPModel
+    @Environment(\.dismiss) var dismiss
+    let onPick: (String) -> Void
+    @State private var root = ""
+
+    init(session: TerminalSession, onPick: @escaping (String) -> Void) {
+        _model = StateObject(wrappedValue: SFTPModel(session: session))
+        self.onPick = onPick
+    }
+
+    /// 在工作目录内就用相对路径（agent 引用更自然）
+    private func display(_ path: String) -> String {
+        if !root.isEmpty, path.hasPrefix(root + "/") { return String(path.dropFirst(root.count + 1)) }
+        return path
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if model.path != "/" && !model.path.isEmpty && model.query.isEmpty {
+                    Button { Task { await model.load((model.path as NSString).deletingLastPathComponent) } } label: {
+                        Label("上一级", systemImage: "arrow.turn.left.up")
+                    }
+                }
+                ForEach(model.visible) { e in
+                    Button {
+                        if e.isDir { Task { await model.load(e.path) } }
+                        else { onPick(display(e.path)); dismiss() }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: e.symbol).foregroundStyle(e.isDir ? .blue : .secondary).frame(width: 24)
+                            Text(e.name).foregroundStyle(.primary).lineLimit(1)
+                            Spacer()
+                            if e.isDir { Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary) }
+                        }
+                    }
+                    .swipeActions {
+                        if e.isDir {
+                            Button { onPick(display(e.path) + "/"); dismiss() } label: { Label("引用目录", systemImage: "at") }.tint(.teal)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "筛选")
+            .overlay { if model.loading && model.entries.isEmpty { ProgressView() } }
+            .navigationTitle(model.path.isEmpty ? "选择文件" : (model.path as NSString).lastPathComponent)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") } }
+            }
+            .task {
+                if let cwd = await model.session.resolveWorkingDirectory() { root = cwd; await model.load(cwd) }
+                if model.entries.isEmpty { await model.load() }
+                if root.isEmpty { root = model.path }
+            }
+            .onDisappear { model.close() }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

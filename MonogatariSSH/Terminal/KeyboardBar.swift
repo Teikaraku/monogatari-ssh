@@ -93,6 +93,16 @@ struct BarKey: Identifiable, Hashable {
 
     static let byID: [String: BarKey] = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
 
+    /// 预设方案
+    static let presets: [(String, String, [String])] = [
+        ("Agent", "sparkles", defaultRow),
+        ("Shell", "terminal", ["^C", "^R", "^L", "^D", "^Z", "^A", "^E", "^U", "^W", "sym|", "sym~", "sym-", "sym/", "sym_", "sym*",
+                               "sym$", "sym&", "sym>", "sym<", "sym;", "paste", "history", "snippets", "home", "end", "pgup", "pgdn", "search"]),
+        ("Vim", "pencil.and.scribble", ["sym:", "sym/", "sym%", "sym{", "sym}", "sym[", "sym]", "sym(", "sym)", "sym<", "sym>", "sym=",
+                                        "sym\"", "sym'", "sym.", "sym*", "^C", "^D", "^U", "^R", "^W", "F1", "F2", "F3", "F4",
+                                        "home", "end", "pgup", "pgdn", "wordLeft", "wordRight", "del", "paste"]),
+    ]
+
     static let defaultRow: [String] = [
         "mode", "newline", "ok1", "ok2", "ok3", "slashMenu", "at", "paste", "compose", "snippets",
         "^C", "sym|", "sym~", "sym-", "sym/", "sym_", "sym*", "sym.", "^R", "^L", "^D", "^Z",

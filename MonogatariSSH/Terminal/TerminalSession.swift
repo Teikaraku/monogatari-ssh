@@ -12,6 +12,19 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
 
     let id = UUID()
     @Published var host: Host
+    /// shell 通过 OSC 7 上报的当前目录
+    var currentDirectory: String?
+
+    /// 终端当前所在目录：tmux 用 pane_current_path，否则 OSC 7
+    func resolveWorkingDirectory() async -> String? {
+        if host.restore == .tmux, let t = sshTransport,
+           let out = try? await t.exec("tmux display -p -t '\(host.effectiveTmuxName.replacingOccurrences(of: "'", with: ""))' '#{pane_current_path}' 2>/dev/null; true") {
+            let p = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if p.hasPrefix("/") { return p }
+        }
+        return currentDirectory
+    }
+
     /// 用户给会话起的名字（并行多个 agent 时区分用）
     @Published var label: String = "" { didSet { SessionManager.shared.persistSoon() } }
     var displayTitle: String { label.isEmpty ? host.displayName : label }
@@ -468,7 +481,12 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         func setTerminalTitle(source: TerminalView, title: String) {
             onMain { o in o.titleModel.update(title) }
         }
-        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+            // OSC 7 形如 file://host/path
+            guard let d = directory else { return }
+            let path = URL(string: d)?.path ?? d
+            onMain { $0.currentDirectory = path.isEmpty ? nil : path }
+        }
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
             let bytes = Array(data)
             onMain { $0.send(bytes) }

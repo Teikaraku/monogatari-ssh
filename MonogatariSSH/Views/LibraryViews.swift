@@ -258,10 +258,16 @@ struct SnippetsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var sessions: SessionManager
     @State private var editing: Snippet?
+    @State private var query = ""
+
+    private var visible: [Snippet] {
+        let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? store.snippets : store.snippets.filter { $0.name.lowercased().contains(q) || $0.command.lowercased().contains(q) }
+    }
 
     var groups: [String] {
         var order: [String] = []
-        for s in store.snippets where !order.contains(s.group) { order.append(s.group) }
+        for s in visible where !order.contains(s.group) { order.append(s.group) }
         return order
     }
 
@@ -269,7 +275,7 @@ struct SnippetsView: View {
         List {
             ForEach(groups, id: \.self) { g in
                 Section(g) {
-                    ForEach(store.snippets.filter { $0.group == g }) { s in
+                    ForEach(visible.filter { $0.group == g }) { s in
                         Button { editing = s } label: {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(s.name).foregroundStyle(.primary)
@@ -296,6 +302,7 @@ struct SnippetsView: View {
                 }
             }
         }
+        .searchable(text: $query, prompt: "搜索片段")
         .navigationTitle("命令片段")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
