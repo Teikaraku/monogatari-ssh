@@ -17,7 +17,7 @@ struct GuideView: View {
             Item(symbol: "text.badge.star", title: "片段", detail: "预置常用 agent 命令；命令里写 {{变量}} 运行时填写。"),
         ]),
         Group_(title: "终端操作", items: [
-            Item(symbol: "keyboard", title: "辅助栏", detail: "第一行 esc tab ctrl alt 方向键（按住连发）；第二行可横滑、可在设置中增删排序；长按按键看说明。"),
+            Item(symbol: "keyboard", title: "辅助栏", detail: "第一行 esc tab ctrl alt 方向键（按住连发）；第二行可横滑、可在设置中增删排序或切换 Agent / Shell / Vim 方案；长按按键看说明。「粘贴」键会触发 iOS 粘贴询问，可在 系统设置 → 物语SSH → 从其他 App 粘贴 设为「允许」。"),
             Item(symbol: "hand.draw", title: "滑动", detail: "普通输出原生惯性滚动；tmux / vim 中单指滑动即带惯性滚轮；右下角按钮回到底部。"),
             Item(symbol: "hand.point.up.left", title: "点按移动光标", detail: "键盘弹出时点输入行某处，光标移过去。"),
             Item(symbol: "text.viewfinder", title: "选择复制", detail: "⋯ → 选择 / 浏览输出：系统原生选择、查找、分享，可把选中的报错引用到写作框发给 agent；也可长按终端选择。"),
