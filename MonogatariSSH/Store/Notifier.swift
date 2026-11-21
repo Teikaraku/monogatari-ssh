@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import Network
 
 /// app 在后台时，把 agent 的响铃 / OSC 9 / OSC 777 通知转成系统通知。
 /// Claude Code 里执行：claude config set --global preferredNotifChannel terminal_bell
@@ -71,9 +72,34 @@ enum Lifecycle {
         }
     }
 
+    private static var monitor: NWPathMonitor?
+    private static var lastPathKey = ""
+
+    /// 网络切换（Wi-Fi ⇄ 蜂窝、恢复联网）时探活重连
+    static func startNetworkMonitor() {
+        guard monitor == nil else { return }
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { path in
+            let key = "\(path.status)-\(path.availableInterfaces.map(\.name).joined(separator: ","))"
+            Task { @MainActor in
+                defer { lastPathKey = key }
+                guard !lastPathKey.isEmpty, key != lastPathKey, path.status == .satisfied,
+                      UIApplication.shared.applicationState == .active else { return }
+                checkConnections()
+            }
+        }
+        m.start(queue: DispatchQueue(label: "net-monitor"))
+        monitor = m
+    }
+
     static func didBecomeActive() {
         end()
         UNUserNotificationCenter.current().setBadgeCount(0)
+        startNetworkMonitor()
+        checkConnections()
+    }
+
+    static func checkConnections() {
         guard AppSettings.shared.autoReconnect else { return }
         for s in SessionManager.shared.sessions {
             if case .disconnected = s.state, s.wasConnectedOnce {

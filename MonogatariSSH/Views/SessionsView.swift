@@ -52,6 +52,9 @@ struct SessionsView: View {
             if !sessions.sessions.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        Button("全部重连", systemImage: "arrow.clockwise") {
+                            sessions.sessions.forEach { $0.reconnect() }
+                        }
                         Button("全部断开", systemImage: "xmark.circle", role: .destructive) { sessions.closeAll() }
                     } label: { Image(systemName: "ellipsis") }
                 }

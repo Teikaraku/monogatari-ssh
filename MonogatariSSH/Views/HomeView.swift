@@ -297,6 +297,10 @@ struct QuickConnectSheet: View {
                 Section {
                     IconField(symbol: "bolt.fill", colors: Color.tileOrange, placeholder: "root@1.2.3.4:22", text: $target, keyboard: .URL, mono: true)
                     IconSecureField(symbol: "key.fill", colors: Color.tileOrange, placeholder: "密码", text: $password)
+                    PasteButton(payloadType: String.self) { strings in
+                        if let s = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) { target = s }
+                    }
+                    .labelStyle(.titleAndIcon)
                 } footer: {
                     Text("支持 user@host、user@host:port，或直接粘贴 ssh -p 端口 user@host")
                 }
