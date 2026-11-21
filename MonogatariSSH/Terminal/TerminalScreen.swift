@@ -45,6 +45,7 @@ struct TerminalScreen: View {
     @State private var showSearch = false
     @State private var showOutput = false
     @State private var showTmux = false
+    @AppStorage("terminalTipsSeen") private var tipsSeen = false
     @State private var showStatus = false
 
     private var theme: TerminalTheme { session.theme }
@@ -101,12 +102,21 @@ struct TerminalScreen: View {
             }
             .presentationDetents([.medium])
         }
-        .alert("新的主机指纹", isPresented: Binding(get: { session.pendingHostKey != nil }, set: { if !$0 { session.pendingHostKey?.reply(false) } }),
+        .alert(session.pendingHostKey?.oldFingerprint == nil ? "新的主机指纹" : "⚠️ 主机指纹已变化", isPresented: Binding(get: { session.pendingHostKey != nil }, set: { if !$0 { session.pendingHostKey?.reply(false) } }),
                presenting: session.pendingHostKey) { p in
-            Button("信任并连接") { p.reply(true) }
-            Button("拒绝", role: .cancel) { p.reply(false) }
+            if p.oldFingerprint == nil {
+                Button("信任并连接") { p.reply(true) }
+                Button("拒绝", role: .cancel) { p.reply(false) }
+            } else {
+                Button("更新指纹并连接", role: .destructive) { p.reply(true) }
+                Button("断开", role: .cancel) { p.reply(false) }
+            }
         } message: { p in
-            Text("首次连接 \(p.host):\(p.port)\n\(p.keyType)\n\(p.fingerprint)\n\n确认这是你的服务器后再继续。")
+            if let old = p.oldFingerprint {
+                Text("\(p.host):\(p.port) 的指纹与上次不同，可能是服务器重装，也可能是中间人攻击。\n\n旧：\(old)\n新：\(p.fingerprint)\n\n确认是你重装了服务器再继续。")
+            } else {
+                Text("首次连接 \(p.host):\(p.port)\n\(p.keyType)\n\(p.fingerprint)\n\n确认这是你的服务器后再继续。")
+            }
         }
         .confirmationDialog("断开并关闭会话？", isPresented: $confirmClose, titleVisibility: .visible) {
             Button("断开", role: .destructive) { closeSession() }
@@ -245,6 +255,28 @@ struct TerminalScreen: View {
 
     @ViewBuilder private var overlays: some View {
         VStack(alignment: .trailing, spacing: 12) {
+            if !tipsSeen && session.state == .connected {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("终端小贴士").font(.subheadline.weight(.semibold))
+                    Group {
+                        Label("双指捏合调整字号", systemImage: "arrow.up.left.and.arrow.down.right")
+                        Label("长按选择文字；「⋯ → 选择/浏览输出」更方便复制", systemImage: "hand.tap")
+                        Label("点顶部主机名切换 / 新开会话", systemImage: "chevron.down.circle")
+                        Label("ctrl / alt 点一下锁定一次，再按字母即组合键", systemImage: "control")
+                        Label("tmux / vim 中单指滑动即可带惯性滚动", systemImage: "hand.draw")
+                    }
+                    .font(.caption)
+                    Button("知道了") { withAnimation { tipsSeen = true } }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .padding(14)
+                .frame(maxWidth: 420)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .frame(maxHeight: .infinity, alignment: .top)
+                .transition(.opacity)
+            }
             if !session.atBottom {
                 Button {
                     session.terminalView.stopMomentum()

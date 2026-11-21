@@ -88,10 +88,22 @@ struct HostRow: View {
     var body: some View {
         Button {
             Haptics.tap()
-            sessions.connect(host)
+            if let live = sessions.sessions.first(where: { $0.host.id == host.id }) {
+                sessions.show(live)
+            } else {
+                sessions.connect(host)
+            }
         } label: {
             HStack(spacing: 14) {
                 HostAvatar(host: host, size: 46)
+                    .overlay(alignment: .bottomTrailing) {
+                        if let live = sessions.sessions.first(where: { $0.host.id == host.id }) {
+                            Circle().fill(live.state == .connected ? Color.green : Color.yellow)
+                                .frame(width: 12, height: 12)
+                                .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+                                .offset(x: 3, y: 3)
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(host.displayName).font(.title3.weight(.medium)).foregroundStyle(.primary)
                     Text(host.address).font(.body).foregroundStyle(.secondary)
@@ -113,6 +125,9 @@ struct HostRow: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button("连接", systemImage: "play.fill") { sessions.connect(host) }
+            if sessions.sessions.contains(where: { $0.host.id == host.id }) {
+                Button("新开一个会话", systemImage: "plus.rectangle.on.rectangle") { sessions.connect(host) }
+            }
             Button("主机信息", systemImage: "info.circle") { info = true }
             Divider()
             Button("复制地址", systemImage: "network") { Clipboard.copy(host.hostname) }

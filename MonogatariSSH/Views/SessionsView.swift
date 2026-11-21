@@ -41,8 +41,7 @@ struct SessionRow: View {
     let open: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 14) {
+        HStack(spacing: 14) {
                 HostAvatar(host: session.host, size: 46)
                     .overlay(alignment: .bottomTrailing) {
                         Circle().fill(dotColor).frame(width: 12, height: 12)
@@ -66,6 +65,14 @@ struct SessionRow: View {
                             .foregroundStyle(session.agentStatus.color)
                     }
                     Text(subtitle).font(.subheadline.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                    if session.agentStatus == .needsInput && session.state == .connected {
+                        HStack(spacing: 8) {
+                            quick("1 允许", [0x31], .green)
+                            quick("2 始终", [0x32], .blue)
+                            quick("拒绝", [0x1b], .red)
+                        }
+                        .padding(.top, 4)
+                    }
                 }
                 Spacer()
                 Text(session.startedAt, style: .relative)
@@ -73,8 +80,22 @@ struct SessionRow: View {
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
+            .onTapGesture { open() }
+            .accessibilityAddTraits(.isButton)
+    }
+
+    /// 不进终端直接回复 agent 的确认提示
+    private func quick(_ title: String, _ bytes: [UInt8], _ color: Color) -> some View {
+        Button {
+            session.send(bytes)
+            Haptics.success()
+        } label: {
+            Text(title).font(.caption.weight(.semibold))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .tint(color)
+        .controlSize(.small)
     }
 
     var dotColor: Color {

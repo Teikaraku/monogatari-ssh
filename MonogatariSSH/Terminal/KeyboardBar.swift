@@ -25,7 +25,22 @@ struct BarKey: Identifiable, Hashable {
     private static let esc = "\u{1b}"
 
     /// 所有可用的键
-    static let catalog: [BarKey] = [
+    static let catalog: [BarKey] = baseKeys + symbolKeys + functionKeys
+
+    private static let symbolKeys: [BarKey] = ["|", "~", "-", "_", "/", "\\", "*", ".", "`", "$", "&", ";", ":", "'", "\"", "<", ">", "{", "}", "[", "]", "(", ")", "=", "+", "%", "^", "?"].map { (c: String) -> BarKey in
+        BarKey(id: "sym" + c, title: c, kind: .text(c))
+    }
+
+    private static let functionKeys: [BarKey] = {
+        let seqs = ["OP", "OQ", "OR", "OS", "[15~", "[17~", "[18~", "[19~", "[20~", "[21~", "[23~", "[24~"]
+        var out: [BarKey] = []
+        for (i, seq) in seqs.enumerated() {
+            out.append(BarKey(id: "F\(i + 1)", title: "F\(i + 1)", kind: .bytes(Array((esc + seq).utf8))))
+        }
+        return out
+    }()
+
+    private static let baseKeys: [BarKey] = [
         // Agent
         BarKey(id: "mode", title: "模式", symbol: "arrow.triangle.2.circlepath", tint: .systemPurple, kind: .bytes(Array("\u{1b}[Z".utf8)), help: "Shift+Tab：Claude Code 切换 普通/自动接受/计划 模式"),
         BarKey(id: "newline", title: "换行", symbol: "return", tint: .systemBlue, kind: .text("\\\r"), help: "在 agent 输入框里换行而不发送"),
@@ -71,13 +86,7 @@ struct BarKey: Identifiable, Hashable {
         BarKey(id: "del", title: "Del", symbol: "delete.right", repeats: true, kind: .bytes(Array("\u{1b}[3~".utf8))),
         BarKey(id: "wordLeft", title: "⌥←", repeats: true, kind: .bytes(Array("\u{1b}b".utf8)), help: "按词左移"),
         BarKey(id: "wordRight", title: "⌥→", repeats: true, kind: .bytes(Array("\u{1b}f".utf8)), help: "按词右移"),
-        // 符号
-    ] + ["|", "~", "-", "_", "/", "\\", "*", ".", "`", "$", "&", ";", ":", "'", "\"", "<", ">", "{", "}", "[", "]", "(", ")", "=", "+", "%", "^", "?"].map {
-        BarKey(id: "sym\($0)", title: $0, kind: .text($0))
-    } + (1...12).map { n in
-        let seq = ["OP", "OQ", "OR", "OS", "[15~", "[17~", "[18~", "[19~", "[20~", "[21~", "[23~", "[24~"][n - 1]
-        return BarKey(id: "F\(n)", title: "F\(n)", kind: .bytes(Array((esc + seq).utf8)))
-    }
+    ]
 
     static let byID: [String: BarKey] = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
 
@@ -110,7 +119,7 @@ final class KeyboardBar: UIInputView {
     private let gap: CGFloat = 6
     private let pad: CGFloat = 6
     private var fixedKeys: [KeyCap] = []
-    private let scroll = UIScrollView()
+    private let scroll = BarScrollView()
     private var scrollKeys: [KeyCap] = []
     private let showSecondRow: Bool
     private var ctrlCap: KeyCap!
@@ -222,6 +231,11 @@ final class KeyboardBar: UIInputView {
 
 extension Notification.Name {
     static let monoBarKeysChanged = Notification.Name("mono.barKeysChanged")
+}
+
+/// 从按键上开始横滑也能滚动（默认 UIScrollView 不取消 UIControl 的触摸）
+final class BarScrollView: UIScrollView {
+    override func touchesShouldCancel(in view: UIView) -> Bool { true }
 }
 
 // MARK: - 键帽

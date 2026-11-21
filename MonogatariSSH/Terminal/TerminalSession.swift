@@ -26,6 +26,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         let port: Int
         let keyType: String
         let fingerprint: String
+        var oldFingerprint: String? = nil
         let reply: (Bool) -> Void
     }
 
@@ -348,6 +349,15 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
 
     // MARK: HostKeyPrompter
 
+    func confirmChangedHostKey(host: String, port: Int, keyType: String, old: String, new: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            pendingHostKey = PendingHostKey(host: host, port: port, keyType: keyType, fingerprint: new, oldFingerprint: old) { [weak self] ok in
+                self?.pendingHostKey = nil
+                cont.resume(returning: ok)
+            }
+        }
+    }
+
     func confirmNewHostKey(host: String, port: Int, keyType: String, fingerprint: String) async -> Bool {
         await withCheckedContinuation { cont in
             pendingHostKey = PendingHostKey(host: host, port: port, keyType: keyType, fingerprint: fingerprint) { [weak self] ok in
@@ -431,7 +441,7 @@ enum AgentStatus: Equatable {
         }
     }
 
-    var color: Color {
+    var color: SwiftUI.Color {
         switch self {
         case .working: return .blue
         case .needsInput: return .orange

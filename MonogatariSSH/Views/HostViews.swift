@@ -67,10 +67,13 @@ struct HostEditView: View {
     @State private var password: String
     @State private var portText: String
     @State private var showAdvanced = false
+    @State private var testing = false
+    @State private var testResult: (ok: Bool, text: String)?
     private let isNew: Bool
 
     init(host: Host?) {
-        let h = host ?? Host()
+        var h = host ?? Host()
+        if host == nil { h.themeID = AppSettings.shared.defaultTheme }
         _host = State(initialValue: h)
         _password = State(initialValue: host.flatMap { AppStore.shared.password(for: $0) } ?? "")
         _portText = State(initialValue: host.map { String($0.port) } ?? "")
@@ -154,6 +157,27 @@ struct HostEditView: View {
                     }
                 }
 
+                if host.proto == .ssh {
+                    Section {
+                        Button {
+                            Task { await runTest() }
+                        } label: {
+                            HStack {
+                                Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
+                                Spacer()
+                                if testing { ProgressView() }
+                            }
+                        }
+                        .disabled(!valid || testing)
+                        if let r = testResult {
+                            Label(r.text, systemImage: r.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                                .font(.footnote)
+                                .foregroundStyle(r.ok ? .green : .red)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+
                 Section("外观") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
@@ -222,6 +246,21 @@ struct HostEditView: View {
         case (.tmux, _): return "首次连接会在 tmux 里启动 \(host.agent.title)；之后再连接直接接回现场，不会重复启动。"
         case (.none, .none): return "建议给跑 agent 的主机开启 tmux 会话恢复：手机锁屏断线后任务不会中断。"
         default: return "连接成功后自动执行。建议同时开启 tmux 会话恢复，防止断线中断任务。"
+        }
+    }
+
+    func runTest() async {
+        testing = true
+        defer { testing = false }
+        var h = host
+        h.hostname = h.hostname.trimmingCharacters(in: .whitespaces)
+        h.port = Int(portText) ?? h.proto.defaultPort
+        do {
+            let (info, t) = try await SSHConnector.test(h, password: h.auth == .password ? password : nil)
+            testResult = (true, "连接成功 · \(Int(t * 1000)) ms\n\(info)")
+            Haptics.success()
+        } catch {
+            testResult = (false, error.localizedDescription)
         }
     }
 

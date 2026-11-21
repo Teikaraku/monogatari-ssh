@@ -27,6 +27,12 @@ struct SettingsView: View {
                     IconTile(symbol: "light.beacon.max", colors: Color.tileTeal)
                     Toggle("光标闪烁", isOn: $settings.cursorBlink)
                 }
+                HStack(spacing: 12) {
+                    IconTile(symbol: "paintpalette.fill", colors: Color.tileMagenta)
+                    Picker("新主机默认配色", selection: $settings.defaultTheme) {
+                        ForEach(TerminalTheme.all) { Text($0.name).tag($0.id) }
+                    }
+                }
                 FontPreview(size: settings.fontSize, name: settings.fontName)
                     .listRowInsets(EdgeInsets())
             } header: {
@@ -101,6 +107,15 @@ struct SettingsView: View {
                 Text("AI Agent")
             } footer: {
                 Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。后台通知：agent 从「工作中」变成「等待确认 / 完成」、响铃或发出 OSC 9/777 通知时提醒你（iOS 只给后台约 30 秒存活时间，长时间锁屏后回来会自动重连并接回 tmux）。")
+            }
+
+            Section("数据") {
+                NavigationLink { BackupView() } label: {
+                    HStack(spacing: 12) {
+                        IconTile(symbol: "externaldrive.fill", colors: Color.tileGray)
+                        Text("备份与迁移")
+                    }
+                }
             }
 
             Section("通用") {

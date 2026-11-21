@@ -38,6 +38,8 @@ enum ConnectError: LocalizedError {
 @MainActor
 protocol HostKeyPrompter: AnyObject {
     func confirmNewHostKey(host: String, port: Int, keyType: String, fingerprint: String) async -> Bool
+    /// 指纹与已保存的不一致（可能被中间人攻击，或服务器重装）
+    func confirmChangedHostKey(host: String, port: Int, keyType: String, old: String, new: String) async -> Bool
 }
 
 /// TOFU 主机指纹校验，结果写入「指纹」列表。
@@ -63,6 +65,10 @@ final class HostKeyValidator: NIOSSHClientServerAuthenticationDelegate {
             if let known = store.knownHost(host: host, port: port) {
                 if known.fingerprint == fp {
                     validationCompletePromise.succeed(())
+                } else if let prompter = self.prompter,
+                          await prompter.confirmChangedHostKey(host: host, port: port, keyType: type, old: known.fingerprint, new: fp) {
+                    store.trust(KnownHost(host: host, port: port, keyType: type, fingerprint: fp, openSSHKey: line))
+                    validationCompletePromise.succeed(())
                 } else {
                     self.rejectReason = .hostKeyChanged(fp)
                     validationCompletePromise.fail(ConnectError.hostKeyChanged(fp))
@@ -84,10 +90,10 @@ final class HostKeyValidator: NIOSSHClientServerAuthenticationDelegate {
 /// 建立 SSH 连接（含跳板机链）。
 enum SSHConnector {
     @MainActor
-    static func authMethod(for host: Host) throws -> SSHAuthenticationMethod {
+    static func authMethod(for host: Host, passwordOverride: String? = nil) throws -> SSHAuthenticationMethod {
         switch host.auth {
         case .password:
-            guard let pw = AppStore.shared.password(for: host) else { throw ConnectError.noPassword }
+            guard let pw = passwordOverride ?? AppStore.shared.password(for: host), !pw.isEmpty else { throw ConnectError.noPassword }
             return .passwordBased(username: host.username, password: pw)
         case .key:
             guard let keyID = host.keyID,
@@ -137,6 +143,28 @@ enum SSHConnector {
             }
         }
         return (current!, jumps)
+    }
+
+    /// 测试连接（不保存、不记录指纹）：返回远端 uname 与耗时
+    @MainActor
+    static func test(_ host: Host, password: String?) async throws -> (String, TimeInterval) {
+        let start = Date()
+        let auth = try authMethod(for: host, passwordOverride: password)
+        var settings = SSHClientSettings(host: host.hostname, port: host.port,
+                                         authenticationMethod: { auth }, hostKeyValidator: .acceptAnything())
+        settings.algorithms = .all
+        settings.connectTimeout = .seconds(10)
+        let client: SSHClient
+        if let jid = host.jumpHostID, let jump = AppStore.shared.host(jid) {
+            let (jc, _) = try await connect(jump, prompter: nil)
+            client = try await jc.jump(to: settings)
+        } else {
+            do { client = try await SSHClient.connect(to: settings) }
+            catch { throw friendly(error, host: host) }
+        }
+        defer { Task { try? await client.close() } }
+        let out = (try? await client.executeCommand("uname -snrm 2>/dev/null || ver")).map { String(buffer: $0) } ?? ""
+        return (out.trimmingCharacters(in: .whitespacesAndNewlines), Date().timeIntervalSince(start))
     }
 
     static func friendly(_ error: Error, host: Host) -> Error {
