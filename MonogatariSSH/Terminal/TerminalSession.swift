@@ -230,8 +230,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
 
     func handle(_ a: KeyboardBar.Action) {
         switch a {
-        case .bytes(let b): send(b)
-        case .text(let t): send(text: t)
+        case .bytes(let b): send(applyModifiers(b))
+        case .text(let t): send(applyModifiers(Array(t.utf8)))
         case .toggleCtrl:
             terminalView.controlModifier.toggle()
             bar.setCtrl(terminalView.controlModifier)
@@ -251,7 +251,33 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             if let s = UIPasteboard.general.string { terminalView.pasteText(s) }
         case .hideKeyboard: terminalView.resignFirstResponder()
         case .copyScreen: Clipboard.copy(terminalView.screenText())
+        case .search: NotificationCenter.default.post(name: .monoShowSearch, object: id)
+        case .selectMode: NotificationCenter.default.post(name: .monoShowOutput, object: id)
         }
+    }
+
+    /// 辅助栏上的键也遵循粘滞的 ctrl / alt：ctrl+字符 → 控制码，alt → 前缀 ESC
+    private func applyModifiers(_ bytes: [UInt8]) -> [UInt8] {
+        var out = bytes
+        if terminalView.controlModifier {
+            if out.count == 1, let c = out.first {
+                switch c {
+                case 0x61...0x7a: out = [c - 0x60]          // a-z
+                case 0x40...0x5f: out = [c - 0x40]          // @ A-Z [ \ ] ^ _
+                case 0x20: out = [0x00]                      // ctrl+space
+                case 0x3f: out = [0x7f]                      // ctrl+?
+                default: break
+                }
+            }
+            terminalView.controlModifier = false
+            bar.setCtrl(false)
+        }
+        if terminalView.metaModifier {
+            out = [0x1b] + out
+            terminalView.metaModifier = false
+            bar.setAlt(false)
+        }
+        return out
     }
 
     func run(_ snippet: Snippet) {
@@ -342,6 +368,8 @@ final class TitleModel: ObservableObject {
 extension Notification.Name {
     static let monoShowCompose = Notification.Name("mono.showCompose")
     static let monoShowSnippets = Notification.Name("mono.showSnippets")
+    static let monoShowSearch = Notification.Name("mono.showSearch")
+    static let monoShowOutput = Notification.Name("mono.showOutput")
 }
 
 /// 管理所有活动会话（「会话」页）。

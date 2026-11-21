@@ -42,12 +42,18 @@ struct TerminalScreen: View {
     @State private var showInfo = false
     @State private var showThemes = false
     @State private var confirmClose = false
+    @State private var showSearch = false
+    @State private var showOutput = false
 
     private var theme: TerminalTheme { session.theme }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            if showSearch {
+                TerminalSearchBar(session: session) { showSearch = false; refocus() }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             ZStack(alignment: .bottomTrailing) {
                 TerminalContainer(session: session)
                     .ignoresSafeArea(.container, edges: .bottom)
@@ -70,6 +76,13 @@ struct TerminalScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .monoShowSnippets)) { n in
             if n.object as? UUID == session.id { showSnippets = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .monoShowSearch)) { n in
+            if n.object as? UUID == session.id { withAnimation(.snappy) { showSearch = true } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .monoShowOutput)) { n in
+            if n.object as? UUID == session.id { showOutput = true }
+        }
+        .sheet(isPresented: $showOutput, onDismiss: refocus) { OutputBrowser(session: session) }
         .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
         .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
         .sheet(isPresented: $showInfo, onDismiss: refocus) { HostInfoSheet(host: session.host) }
@@ -130,6 +143,8 @@ struct TerminalScreen: View {
                 barButton("square.and.pencil", label: "写作") { showCompose = true }
                 Menu {
                     Button("命令片段", systemImage: "text.badge.star") { showSnippets = true }
+                    Button("搜索输出", systemImage: "magnifyingglass") { withAnimation(.snappy) { showSearch = true } }
+                    Button("选择 / 浏览输出", systemImage: "text.viewfinder") { showOutput = true }
                     Button("复制屏幕内容", systemImage: "doc.on.doc") { Clipboard.copy(session.terminalView.screenText()) }
                     Button("复制全部输出", systemImage: "doc.on.clipboard") { Clipboard.copy(session.terminalView.allText()) }
                     Divider()

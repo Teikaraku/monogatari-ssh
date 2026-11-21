@@ -20,6 +20,21 @@ final class AppSettings: ObservableObject {
     /// tmux 预设：鼠标滚动、5 万行历史、1 行/次滚轮（滑动更跟手）
     @AppStorage("tmuxTuning") var tmuxTuning: Bool = true
     @AppStorage("agentBar") var agentBar: Bool = true
+    /// 辅助栏第二行的键（逗号分隔的 BarKey.id），空 = 默认
+    @AppStorage("barKeys") var barKeysRaw: String = ""
+    /// 连接成功 / 断开 / agent 响铃 时发本地通知（app 在后台时）
+    @AppStorage("notifyBell") var notifyBell: Bool = true
+
+    var barKeyIDs: [String] {
+        get {
+            let ids = barKeysRaw.split(separator: ",").map(String.init).filter { BarKey.byID[$0] != nil }
+            return ids.isEmpty ? BarKey.defaultRow : ids
+        }
+        set {
+            barKeysRaw = newValue.joined(separator: ",")
+            NotificationCenter.default.post(name: .monoBarKeysChanged, object: nil)
+        }
+    }
     @AppStorage("composeSendsReturn") var composeSendsReturn: Bool = true
     @AppStorage("autoReconnect") var autoReconnect: Bool = true
     @AppStorage("useMetal") var useMetal: Bool = true

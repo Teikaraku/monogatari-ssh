@@ -1,303 +1,348 @@
 import UIKit
 import SwiftTerm
 
-/// 键盘上方的辅助栏。第一行通用终端按键，第二行为 AI agent（Claude Code 等）优化的快捷键。
+// MARK: - 按键定义
+
+/// 辅助栏上的一个键。第二行的键可在「设置 → 键盘辅助栏」里增删排序。
+struct BarKey: Identifiable, Hashable {
+    enum Kind: Hashable {
+        case bytes([UInt8])
+        case text(String)
+        case action(KeyboardBar.Action)
+    }
+    let id: String
+    let title: String
+    var symbol: String? = nil
+    var tint: UIColor? = nil
+    var repeats = false
+    let kind: Kind
+    /// 设置页里的说明
+    var help: String = ""
+
+    static func == (a: BarKey, b: BarKey) -> Bool { a.id == b.id }
+    func hash(into h: inout Hasher) { h.combine(id) }
+
+    private static let esc = "\u{1b}"
+
+    /// 所有可用的键
+    static let catalog: [BarKey] = [
+        // Agent
+        BarKey(id: "mode", title: "模式", symbol: "arrow.triangle.2.circlepath", tint: .systemPurple, kind: .bytes(Array("\u{1b}[Z".utf8)), help: "Shift+Tab：Claude Code 切换 普通/自动接受/计划 模式"),
+        BarKey(id: "newline", title: "换行", symbol: "return", tint: .systemBlue, kind: .text("\\\r"), help: "在 agent 输入框里换行而不发送"),
+        BarKey(id: "interrupt", title: "中断", symbol: "stop.fill", tint: .systemRed, kind: .bytes([0x1b]), help: "Esc：打断 agent 当前操作"),
+        BarKey(id: "rewind", title: "回退", symbol: "arrow.uturn.backward", tint: .systemOrange, kind: .bytes([0x1b, 0x1b]), help: "Esc Esc：Claude Code 回到上一条消息"),
+        BarKey(id: "ok1", title: "1", tint: .systemGreen, kind: .text("1"), help: "选择第 1 项（通常是「是」）"),
+        BarKey(id: "ok2", title: "2", tint: .systemGreen, kind: .text("2"), help: "选择第 2 项（通常是「是，且不再询问」）"),
+        BarKey(id: "ok3", title: "3", tint: .systemGreen, kind: .text("3"), help: "选择第 3 项"),
+        BarKey(id: "y", title: "y", kind: .text("y")),
+        BarKey(id: "n", title: "n", kind: .text("n")),
+        BarKey(id: "slash", title: "/", tint: .systemOrange, kind: .text("/"), help: "斜杠指令"),
+        BarKey(id: "at", title: "@", tint: .systemTeal, kind: .text("@"), help: "引用文件"),
+        BarKey(id: "bang", title: "!", tint: .systemGreen, kind: .text("!"), help: "Claude Code 直接执行 shell"),
+        BarKey(id: "hash", title: "#", tint: .systemIndigo, kind: .text("#"), help: "写入记忆"),
+        BarKey(id: "verbose", title: "^O", tint: .systemGray, kind: .bytes([0x0f]), help: "Ctrl+O：展开/收起详细输出"),
+        BarKey(id: "todo", title: "^T", tint: .systemGray, kind: .bytes([0x14]), help: "Ctrl+T：显示/隐藏待办列表"),
+        BarKey(id: "background", title: "^B", tint: .systemGray, kind: .bytes([0x02]), help: "Ctrl+B：把运行中的命令转到后台（tmux 下为前缀键）"),
+        // 工具
+        BarKey(id: "paste", title: "粘贴", symbol: "doc.on.clipboard", kind: .action(.paste)),
+        BarKey(id: "compose", title: "写作", symbol: "square.and.pencil", tint: .systemBlue, kind: .action(.compose), help: "用原生输入法写长内容再发送"),
+        BarKey(id: "snippets", title: "片段", symbol: "text.badge.star", tint: .systemPink, kind: .action(.snippets)),
+        BarKey(id: "copyScreen", title: "复制屏幕", symbol: "doc.on.doc", kind: .action(.copyScreen)),
+        BarKey(id: "search", title: "搜索", symbol: "magnifyingglass", kind: .action(.search), help: "在输出中查找"),
+        BarKey(id: "select", title: "选择", symbol: "selection.pin.in.out", kind: .action(.selectMode), help: "进入文本选择模式"),
+        // 控制键
+        BarKey(id: "^C", title: "^C", tint: .systemRed, kind: .bytes([0x03]), help: "中止"),
+        BarKey(id: "^D", title: "^D", kind: .bytes([0x04]), help: "EOF / 退出"),
+        BarKey(id: "^Z", title: "^Z", kind: .bytes([0x1a]), help: "挂起"),
+        BarKey(id: "^L", title: "^L", kind: .bytes([0x0c]), help: "清屏"),
+        BarKey(id: "^R", title: "^R", kind: .bytes([0x12]), help: "搜索历史"),
+        BarKey(id: "^A", title: "^A", kind: .bytes([0x01]), help: "行首 / screen 前缀"),
+        BarKey(id: "^E", title: "^E", kind: .bytes([0x05]), help: "行尾"),
+        BarKey(id: "^U", title: "^U", kind: .bytes([0x15]), help: "删除到行首"),
+        BarKey(id: "^K", title: "^K", kind: .bytes([0x0b]), help: "删除到行尾"),
+        BarKey(id: "^W", title: "^W", kind: .bytes([0x17]), help: "删除前一个词"),
+        BarKey(id: "tmuxPrefix", title: "^B", symbol: "square.split.2x1", tint: .systemPurple, kind: .bytes([0x02]), help: "tmux 前缀键"),
+        BarKey(id: "tmuxCopy", title: "回滚", symbol: "scroll", tint: .systemPurple, kind: .bytes([0x02, 0x5b]), help: "tmux 进入回滚/复制模式（^B [）"),
+        // 导航
+        BarKey(id: "home", title: "Home", repeats: false, kind: .bytes(Array("\u{1b}[H".utf8))),
+        BarKey(id: "end", title: "End", kind: .bytes(Array("\u{1b}[F".utf8))),
+        BarKey(id: "pgup", title: "PgUp", repeats: true, kind: .bytes(Array("\u{1b}[5~".utf8))),
+        BarKey(id: "pgdn", title: "PgDn", repeats: true, kind: .bytes(Array("\u{1b}[6~".utf8))),
+        BarKey(id: "del", title: "Del", symbol: "delete.right", repeats: true, kind: .bytes(Array("\u{1b}[3~".utf8))),
+        BarKey(id: "wordLeft", title: "⌥←", repeats: true, kind: .bytes(Array("\u{1b}b".utf8)), help: "按词左移"),
+        BarKey(id: "wordRight", title: "⌥→", repeats: true, kind: .bytes(Array("\u{1b}f".utf8)), help: "按词右移"),
+        // 符号
+    ] + ["|", "~", "-", "_", "/", "\\", "*", ".", "`", "$", "&", ";", ":", "'", "\"", "<", ">", "{", "}", "[", "]", "(", ")", "=", "+", "%", "^", "?"].map {
+        BarKey(id: "sym\($0)", title: $0, kind: .text($0))
+    } + (1...12).map { n in
+        let seq = ["OP", "OQ", "OR", "OS", "[15~", "[17~", "[18~", "[19~", "[20~", "[21~", "[23~", "[24~"][n - 1]
+        return BarKey(id: "F\(n)", title: "F\(n)", kind: .bytes(Array((esc + seq).utf8)))
+    }
+
+    static let byID: [String: BarKey] = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
+
+    static let defaultRow: [String] = [
+        "mode", "newline", "ok1", "ok2", "ok3", "slash", "at", "paste", "compose", "snippets",
+        "^C", "sym|", "sym~", "sym-", "sym/", "sym_", "sym*", "sym.", "^R", "^L", "^D", "^Z",
+        "home", "end", "pgup", "pgdn", "tmuxCopy", "verbose", "bang", "hash", "rewind", "search",
+    ]
+}
+
+// MARK: - 辅助栏
+
+/// 键盘上方的辅助栏：手动布局，避免 inputAccessoryView 里 AutoLayout 算错尺寸。
+///
+/// 第一行（固定、等宽）：esc tab ctrl alt ← ↑ ↓ → 收起键盘
+/// 第二行（可横滑，可自定义）：agent 操作 / 控制键 / 符号 / 工具
 final class KeyboardBar: UIInputView {
-    enum Action {
+    enum Action: Hashable {
         case bytes([UInt8])
         case text(String)
         case toggleCtrl, toggleAlt
         case arrow(Arrow)
-        case compose, snippets, paste, hideKeyboard, copyScreen
+        case compose, snippets, paste, hideKeyboard, copyScreen, search, selectMode
     }
-    enum Arrow { case up, down, left, right }
+    enum Arrow: Hashable { case up, down, left, right }
 
     var onAction: ((Action) -> Void)?
-    private weak var terminal: TerminalView?
-    private var ctrlButton: UIButton?
-    private var altButton: UIButton?
-    private var observers: [NSObjectProtocol] = []
-    private let showAgentRow: Bool
 
-    static func height(agent: Bool) -> CGFloat { agent ? 92 : 48 }
+    private let rowHeight: CGFloat = 40
+    private let gap: CGFloat = 6
+    private let pad: CGFloat = 6
+    private var fixedKeys: [KeyCap] = []
+    private let scroll = UIScrollView()
+    private var scrollKeys: [KeyCap] = []
+    private let showSecondRow: Bool
+    private var ctrlCap: KeyCap!
+    private var altCap: KeyCap!
+    private var observers: [NSObjectProtocol] = []
+
+    var barHeight: CGFloat { pad + rowHeight + (showSecondRow ? gap + rowHeight : 0) + pad }
 
     init(terminal: TerminalView, agentRow: Bool) {
-        self.terminal = terminal
-        self.showAgentRow = agentRow
-        super.init(frame: CGRect(x: 0, y: 0, width: 400, height: Self.height(agent: agentRow)), inputViewStyle: .keyboard)
+        showSecondRow = agentRow
+        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: 100), inputViewStyle: .keyboard)
+        frame.size.height = barHeight
+        autoresizingMask = [.flexibleWidth]
         allowsSelfSizing = true
-        autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        build()
+        buildFixedRow()
+        if agentRow { buildScrollRow() }
         observers.append(NotificationCenter.default.addObserver(forName: .terminalViewControlModifierReset, object: terminal, queue: .main) { [weak self] _ in
-            self?.setToggle(self?.ctrlButton, on: false)
+            self?.ctrlCap.isOn = false
         })
         observers.append(NotificationCenter.default.addObserver(forName: .terminalViewMetaModifierReset, object: terminal, queue: .main) { [weak self] _ in
-            self?.setToggle(self?.altButton, on: false)
+            self?.altCap.isOn = false
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: .monoBarKeysChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.rebuildScrollRow()
         })
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
     deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
 
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: Self.height(agent: showAgentRow))
-    }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: barHeight) }
 
-    // MARK: 构建
-
-    private func build() {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
-        ])
-
-        // 第一行：通用按键 + 固定在右侧的收起键盘
-        let row1 = UIStackView()
-        row1.axis = .horizontal
-        row1.spacing = 6
-        let scroll1 = makeScrollRow(keys: [
-            key("esc", bytes: [0x1b]),
-            key("tab", symbol: "arrow.right.to.line", bytes: [0x09]),
-            toggle("ctrl", isCtrl: true),
-            toggle("alt", isCtrl: false),
-            ArrowPad(onArrow: { [weak self] a in self?.fire(.arrow(a)) }),
-            key("/", text: "/"), key("-", text: "-"), key("|", text: "|"), key("~", text: "~"),
-            key("`", text: "`"), key("*", text: "*"), key("$", text: "$"), key("&", text: "&"),
-            key("home", bytes: Array("\u{1b}[H".utf8)), key("end", bytes: Array("\u{1b}[F".utf8)),
-            key("pgup", bytes: Array("\u{1b}[5~".utf8), repeats: true), key("pgdn", bytes: Array("\u{1b}[6~".utf8), repeats: true),
-            key("^C", bytes: [0x03]), key("^D", bytes: [0x04]), key("^Z", bytes: [0x1a]),
-            key("^L", bytes: [0x0c]), key("^R", bytes: [0x12]), key("^A", bytes: [0x01]), key("^E", bytes: [0x05]),
-            key("^U", bytes: [0x15]), key("^W", bytes: [0x17]),
-        ])
-        row1.addArrangedSubview(scroll1)
-        let hide = key("", symbol: "keyboard.chevron.compact.down", action: .hideKeyboard)
-        hide.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        row1.addArrangedSubview(hide)
-        row1.isLayoutMarginsRelativeArrangement = true
-        row1.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 6)
-        stack.addArrangedSubview(row1)
-
-        if showAgentRow {
-            let row2 = makeScrollRow(keys: [
-                key("中断", symbol: "stop.circle", bytes: [0x1b], tint: .systemRed),
-                key("模式", symbol: "arrow.triangle.2.circlepath", bytes: Array("\u{1b}[Z".utf8), tint: .systemPurple),
-                key("换行", symbol: "return", text: "\\\r", tint: .systemBlue),
-                key("1", text: "1"), key("2", text: "2"), key("3", text: "3"),
-                key("y", text: "y"), key("n", text: "n"),
-                key("/指令", text: "/", tint: .systemOrange),
-                key("@文件", text: "@", tint: .systemTeal),
-                key("!命令", text: "!", tint: .systemGreen),
-                key("#记忆", text: "#", tint: .systemIndigo),
-                key("粘贴", symbol: "doc.on.clipboard", action: .paste),
-                key("复制屏幕", symbol: "doc.on.doc", action: .copyScreen),
-                key("写作", symbol: "square.and.pencil", action: .compose, tint: .systemBlue),
-                key("片段", symbol: "text.badge.star", action: .snippets, tint: .systemPink),
-            ])
-            stack.addArrangedSubview(row2)
+    private func buildFixedRow() {
+        func cap(_ title: String, symbol: String? = nil, repeats: Bool = false, action: Action) -> KeyCap {
+            let k = KeyCap(title: title, symbol: symbol)
+            k.repeats = repeats
+            k.onFire = { [weak self] in self?.onAction?(action) }
+            addSubview(k)
+            fixedKeys.append(k)
+            return k
         }
+        _ = cap("esc", action: .bytes([0x1b]))
+        _ = cap("tab", symbol: "arrow.right.to.line", action: .bytes([0x09]))
+        ctrlCap = cap("ctrl", action: .toggleCtrl)
+        ctrlCap.isToggle = true
+        altCap = cap("alt", action: .toggleAlt)
+        altCap.isToggle = true
+        _ = cap("", symbol: "arrow.left", repeats: true, action: .arrow(.left))
+        _ = cap("", symbol: "arrow.up", repeats: true, action: .arrow(.up))
+        _ = cap("", symbol: "arrow.down", repeats: true, action: .arrow(.down))
+        _ = cap("", symbol: "arrow.right", repeats: true, action: .arrow(.right))
+        _ = cap("", symbol: "keyboard.chevron.compact.down", action: .hideKeyboard)
     }
 
-    private func makeScrollRow(keys: [UIView]) -> UIScrollView {
-        let sv = UIScrollView()
-        sv.showsHorizontalScrollIndicator = false
-        sv.alwaysBounceHorizontal = true
-        sv.delaysContentTouches = false
-        sv.canCancelContentTouches = true
-        let inner = UIStackView(arrangedSubviews: keys)
-        inner.axis = .horizontal
-        inner.spacing = 6
-        inner.translatesAutoresizingMaskIntoConstraints = false
-        sv.addSubview(inner)
-        NSLayoutConstraint.activate([
-            inner.leadingAnchor.constraint(equalTo: sv.contentLayoutGuide.leadingAnchor, constant: 6),
-            inner.trailingAnchor.constraint(equalTo: sv.contentLayoutGuide.trailingAnchor, constant: -6),
-            inner.topAnchor.constraint(equalTo: sv.contentLayoutGuide.topAnchor),
-            inner.bottomAnchor.constraint(equalTo: sv.contentLayoutGuide.bottomAnchor),
-            inner.heightAnchor.constraint(equalTo: sv.frameLayoutGuide.heightAnchor),
-            sv.heightAnchor.constraint(equalToConstant: 38),
-        ])
-        return sv
+    private func buildScrollRow() {
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.alwaysBounceHorizontal = true
+        scroll.delaysContentTouches = false
+        scroll.canCancelContentTouches = true
+        addSubview(scroll)
+        rebuildScrollRow()
     }
 
-    private func baseConfig(title: String, symbol: String?, tint: UIColor?) -> UIButton.Configuration {
-        var c = UIButton.Configuration.filled()
-        c.baseBackgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.32, alpha: 1) : .white }
-        c.baseForegroundColor = tint ?? .label
-        c.cornerStyle = .medium
-        c.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
-        if let symbol {
-            c.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium))
-            c.imagePadding = title.isEmpty ? 0 : 4
+    private func rebuildScrollRow() {
+        guard showSecondRow else { return }
+        scrollKeys.forEach { $0.removeFromSuperview() }
+        scrollKeys = AppSettings.shared.barKeyIDs.compactMap { BarKey.byID[$0] }.map { key in
+            let k = KeyCap(title: key.title, symbol: key.symbol, tint: key.tint)
+            k.repeats = key.repeats
+            let action: Action
+            switch key.kind {
+            case .bytes(let b): action = .bytes(b)
+            case .text(let t): action = .text(t)
+            case .action(let a): action = a
+            }
+            k.onFire = { [weak self] in self?.onAction?(action) }
+            scroll.addSubview(k)
+            return k
         }
-        if !title.isEmpty {
-            var attr = AttributedString(title)
-            attr.font = title.count <= 4 && title.allSatisfy({ $0.isASCII })
-                ? UIFont.monospacedSystemFont(ofSize: 14, weight: .medium)
-                : UIFont.systemFont(ofSize: 14, weight: .medium)
-            c.attributedTitle = attr
+        setNeedsLayout()
+    }
+
+    func setCtrl(_ on: Bool) { ctrlCap.isOn = on }
+    func setAlt(_ on: Bool) { altCap.isOn = on }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let inset = safeAreaInsets
+        let width = bounds.width - inset.left - inset.right - pad * 2
+        // 第一行：等宽，收起键盘键略窄
+        let n = CGFloat(fixedKeys.count)
+        let w = floor((width - gap * (n - 1)) / n)
+        var x = inset.left + pad
+        for k in fixedKeys {
+            k.frame = CGRect(x: x, y: pad, width: w, height: rowHeight)
+            x += w + gap
         }
-        return c
-    }
-
-    private func key(_ title: String, symbol: String? = nil, bytes: [UInt8]? = nil, text: String? = nil,
-                     action: Action? = nil, tint: UIColor? = nil, repeats: Bool = false) -> UIButton {
-        let b = RepeatButton(config: baseConfig(title: title, symbol: symbol, tint: tint))
-        let act: Action = action ?? (bytes.map { .bytes($0) } ?? .text(text ?? title))
-        b.repeats = repeats
-        b.handler = { [weak self] in self?.fire(act) }
-        b.layer.shadowColor = UIColor.black.cgColor
-        b.layer.shadowOpacity = 0.12
-        b.layer.shadowRadius = 0
-        b.layer.shadowOffset = CGSize(width: 0, height: 1)
-        b.widthAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
-        return b
-    }
-
-    private func toggle(_ title: String, isCtrl: Bool) -> UIButton {
-        let b = UIButton(configuration: baseConfig(title: title, symbol: nil, tint: nil))
-        b.addAction(UIAction { [weak self] _ in
-            Haptics.tap()
-            self?.fire(isCtrl ? .toggleCtrl : .toggleAlt)
-        }, for: .touchUpInside)
-        b.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-        if isCtrl { ctrlButton = b } else { altButton = b }
-        return b
-    }
-
-    func setCtrl(_ on: Bool) { setToggle(ctrlButton, on: on) }
-    func setAlt(_ on: Bool) { setToggle(altButton, on: on) }
-
-    private func setToggle(_ b: UIButton?, on: Bool) {
-        guard let b, var c = b.configuration else { return }
-        c.baseBackgroundColor = on ? .systemBlue : UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.32, alpha: 1) : .white }
-        c.baseForegroundColor = on ? .white : .label
-        b.configuration = c
-    }
-
-    private func fire(_ a: Action) {
-        onAction?(a)
+        guard showSecondRow else { return }
+        scroll.frame = CGRect(x: inset.left, y: pad + rowHeight + gap, width: bounds.width - inset.left - inset.right, height: rowHeight)
+        x = pad
+        for k in scrollKeys {
+            let kw = max(44, k.preferredWidth)
+            k.frame = CGRect(x: x, y: 0, width: kw, height: rowHeight)
+            x += kw + gap
+        }
+        scroll.contentSize = CGSize(width: x - gap + pad, height: rowHeight)
     }
 }
 
-/// 支持按住连发的按键。
-private final class RepeatButton: UIButton {
-    var handler: (() -> Void)?
+extension Notification.Name {
+    static let monoBarKeysChanged = Notification.Name("mono.barKeysChanged")
+}
+
+// MARK: - 键帽
+
+/// 仿系统键盘键帽：按下高亮，抬手发送；可连发、可作为开关（ctrl/alt）。
+final class KeyCap: UIControl {
+    var onFire: (() -> Void)?
     var repeats = false
+    var isToggle = false
+    var isOn = false { didSet { updateColors() } }
+
+    private let label = UILabel()
+    private let icon = UIImageView()
+    private let tint: UIColor?
     private var timer: Timer?
-
-    override init(frame: CGRect) { super.init(frame: frame); wire() }
-    convenience init(config: UIButton.Configuration) {
-        self.init(frame: .zero)
-        self.configuration = config
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
     private var firedByRepeat = false
 
-    private func wire() {
-        addTarget(self, action: #selector(down), for: .touchDown)
-        addTarget(self, action: #selector(upInside), for: .touchUpInside)
-        addTarget(self, action: #selector(cancel), for: [.touchUpOutside, .touchCancel, .touchDragExit])
-    }
-
-    // 按下只做轻触反馈；抬起才发送，横向拖动按键栏时不会误触
-    @objc private func down() {
-        Haptics.soft()
-        firedByRepeat = false
-        guard repeats else { return }
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.firedByRepeat = true
-            self.handler?()
-            self.timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.handler?() }
-        }
-    }
-    @objc private func upInside() {
-        timer?.invalidate(); timer = nil
-        if !firedByRepeat { Haptics.tap(); handler?() }
-    }
-    @objc private func cancel() { timer?.invalidate(); timer = nil }
-}
-
-/// 方向键摇杆：点击上下左右区域发送一次；按住拖动按距离连续发送（适合在长命令里移动光标、在 agent 的选项列表里上下选）。
-private final class ArrowPad: UIView {
-    let onArrow: (KeyboardBar.Arrow) -> Void
-    private var origin: CGPoint = .zero
-    private var acc: CGPoint = .zero
-    private var repeatTimer: Timer?
-    private var lastDir: KeyboardBar.Arrow?
-    private let step: CGFloat = 14
-
-    init(onArrow: @escaping (KeyboardBar.Arrow) -> Void) {
-        self.onArrow = onArrow
+    init(title: String, symbol: String?, tint: UIColor? = nil) {
+        self.tint = tint
         super.init(frame: .zero)
-        backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.32, alpha: 1) : .white }
-        layer.cornerRadius = 8
+        layer.cornerRadius = 7
         layer.cornerCurve = .continuous
-        let img = UIImageView(image: UIImage(systemName: "dpad", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)))
-        img.tintColor = .label
-        img.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(img)
-        NSLayoutConstraint.activate([
-            img.centerXAnchor.constraint(equalTo: centerXAnchor),
-            img.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(equalToConstant: 64),
-        ])
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
-        addGestureRecognizer(pan)
-        let tap = UITapGestureRecognizer(target: self, action: #selector(onTap(_:)))
-        addGestureRecognizer(tap)
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(onHold(_:)))
-        hold.minimumPressDuration = 0.35
-        addGestureRecognizer(hold)
-        accessibilityLabel = "方向键"
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.25
+        layer.shadowRadius = 0
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        isExclusiveTouch = true
+
+        let ascii = title.allSatisfy { $0.isASCII }
+        label.text = title
+        label.font = ascii ? .monospacedSystemFont(ofSize: 15, weight: .medium) : .systemFont(ofSize: 14, weight: .medium)
+        label.textAlignment = .center
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        addSubview(label)
+        if let symbol {
+            icon.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+            icon.contentMode = .center
+            addSubview(icon)
+        }
+        isAccessibilityElement = true
+        accessibilityLabel = title.isEmpty ? symbol : title
+        accessibilityTraits = .keyboardKey
+        updateColors()
     }
+
     required init?(coder: NSCoder) { fatalError() }
 
-    private func direction(at p: CGPoint) -> KeyboardBar.Arrow {
-        let dx = p.x - bounds.midX, dy = (p.y - bounds.midY) * (bounds.width / max(bounds.height, 1))
-        if abs(dx) > abs(dy) { return dx > 0 ? .right : .left }
-        return dy > 0 ? .down : .up
+    var preferredWidth: CGFloat {
+        let textW = label.text.map { ($0 as NSString).size(withAttributes: [.font: label.font!]).width } ?? 0
+        let iconW: CGFloat = icon.image == nil ? 0 : 20
+        let spacing: CGFloat = (textW > 0 && iconW > 0) ? 4 : 0
+        return ceil(textW + iconW + spacing + 24)
     }
 
-    @objc private func onTap(_ g: UITapGestureRecognizer) {
-        Haptics.tap()
-        onArrow(direction(at: g.location(in: self)))
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let hasText = !(label.text ?? "").isEmpty
+        if icon.image != nil && hasText {
+            let textW = min(bounds.width - 32, (label.text! as NSString).size(withAttributes: [.font: label.font!]).width)
+            let total = 20 + 4 + textW
+            let x0 = (bounds.width - total) / 2
+            icon.frame = CGRect(x: x0, y: 0, width: 20, height: bounds.height)
+            label.frame = CGRect(x: x0 + 24, y: 0, width: textW, height: bounds.height)
+        } else if icon.image != nil {
+            icon.frame = bounds
+        } else {
+            label.frame = bounds.insetBy(dx: 4, dy: 0)
+        }
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 7).cgPath
     }
 
-    @objc private func onHold(_ g: UILongPressGestureRecognizer) {
-        switch g.state {
-        case .began:
-            let d = direction(at: g.location(in: self))
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        updateColors()
+    }
+
+    private var normalBG: UIColor {
+        traitCollection.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white
+    }
+    private var pressedBG: UIColor {
+        traitCollection.userInterfaceStyle == .dark ? UIColor(white: 0.62, alpha: 1) : UIColor(white: 0.82, alpha: 1)
+    }
+
+    private func updateColors() {
+        let on = isToggle && isOn
+        backgroundColor = on ? .systemBlue : (isHighlighted ? pressedBG : normalBG)
+        let fg: UIColor = on ? .white : (tint ?? .label)
+        label.textColor = fg
+        icon.tintColor = fg
+    }
+
+    override var isHighlighted: Bool { didSet { updateColors() } }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        firedByRepeat = false
+        Haptics.soft()
+        if repeats {
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.38, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.firedByRepeat = true
+                self.onFire?()
+                self.timer = Timer.scheduledTimer(withTimeInterval: 0.055, repeats: true) { [weak self] _ in self?.onFire?() }
+            }
+        }
+        return super.beginTracking(touch, with: event)
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        super.endTracking(touch, with: event)
+        timer?.invalidate(); timer = nil
+        guard let touch, bounds.insetBy(dx: -12, dy: -12).contains(touch.location(in: self)) else { return }
+        if !firedByRepeat {
             Haptics.tap()
-            onArrow(d)
-            repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { [weak self] _ in self?.onArrow(d) }
-        case .ended, .cancelled, .failed:
-            repeatTimer?.invalidate(); repeatTimer = nil
-        default: break
+            onFire?()
         }
     }
 
-    @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        repeatTimer?.invalidate(); repeatTimer = nil
-        switch g.state {
-        case .began: acc = .zero
-        case .changed:
-            let t = g.translation(in: self)
-            g.setTranslation(.zero, in: self)
-            acc.x += t.x; acc.y += t.y
-            while abs(acc.x) >= step { let r = acc.x > 0; acc.x -= r ? step : -step; onArrow(r ? .right : .left); Haptics.soft() }
-            while abs(acc.y) >= step { let d = acc.y > 0; acc.y -= d ? step : -step; onArrow(d ? .down : .up); Haptics.soft() }
-        default: break
-        }
+    override func cancelTracking(with event: UIEvent?) {
+        super.cancelTracking(with: event)
+        timer?.invalidate(); timer = nil
     }
 }

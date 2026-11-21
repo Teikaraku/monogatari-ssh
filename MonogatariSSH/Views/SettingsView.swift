@@ -71,7 +71,15 @@ struct SettingsView: View {
             Section {
                 HStack(spacing: 12) {
                     IconTile(symbol: "sparkles", colors: Color.tileOrange)
-                    Toggle("Agent 快捷键栏", isOn: $settings.agentBar)
+                    Toggle("第二行快捷键", isOn: $settings.agentBar)
+                }
+                NavigationLink { BarKeysEditor() } label: {
+                    HStack(spacing: 12) {
+                        IconTile(symbol: "keyboard", colors: Color.tileBlue)
+                        Text("自定义键盘辅助栏")
+                        Spacer()
+                        Text("\(settings.barKeyIDs.count) 个键").foregroundStyle(.secondary)
+                    }
                 }
                 HStack(spacing: 12) {
                     IconTile(symbol: "square.stack.3d.up.fill", colors: Color.tileMagenta)
@@ -88,7 +96,7 @@ struct SettingsView: View {
             } header: {
                 Text("AI Agent")
             } footer: {
-                Text("快捷键栏提供 中断(Esc)、切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件 等 Claude Code 常用操作。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。自动重连仅对开启了会话恢复的主机生效。")
+                Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。自动重连仅对开启了会话恢复的主机生效。")
             }
 
             Section("通用") {
