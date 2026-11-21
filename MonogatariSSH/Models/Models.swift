@@ -73,6 +73,19 @@ struct PortForward: Codable, Hashable, Identifiable {
 enum HostIcon: String, Codable, CaseIterable, Identifiable {
     case server, linux, debian, ubuntu, apple, cloud, cpu, pi, windows
     var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .server: return "服务器"
+        case .linux: return "Linux"
+        case .debian: return "Debian"
+        case .ubuntu: return "Ubuntu"
+        case .apple: return "Mac"
+        case .cloud: return "云主机"
+        case .cpu: return "开发机"
+        case .pi: return "树莓派"
+        case .windows: return "Windows"
+        }
+    }
     var symbol: String {
         switch self {
         case .server: return "server.rack"

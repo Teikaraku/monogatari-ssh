@@ -73,6 +73,18 @@ struct TerminalScreen: View {
                 TerminalContainer(session: session)
                     .ignoresSafeArea(.container, edges: .bottom)
                 overlays
+                if !keyboardVisible && session.state == .connected && session.agentStatus == .needsInput {
+                    HStack(spacing: 8) {
+                        quickReply("1 允许", [0x31], .green)
+                        quickReply("2 始终", [0x32], .blue)
+                        quickReply("拒绝", [0x1b], .red)
+                    }
+                    .padding(8)
+                    .glassCapsule()
+                    .padding(.bottom, 20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if !keyboardVisible && session.state == .connected {
                     Button {
                         _ = session.terminalView.becomeFirstResponder()
@@ -91,6 +103,7 @@ struct TerminalScreen: View {
                 }
             }
             .animation(.snappy, value: keyboardVisible)
+            .animation(.snappy, value: session.agentStatus)
         }
         .background(theme.bgColor.ignoresSafeArea())
         .background(shortcuts)
@@ -276,6 +289,9 @@ struct TerminalScreen: View {
                             }
                         }
                     }
+                    Button("复制 agent 最后回复", systemImage: "bubble.left.and.text.bubble.right") {
+                        if let t = session.lastAgentReply() { Clipboard.copy(t) } else { Toast.shared.show("没有找到 agent 回复") }
+                    }
                     Button("复制屏幕内容", systemImage: "doc.on.doc") { Clipboard.copy(session.terminalView.screenText()) }
                     Button("复制全部输出", systemImage: "doc.on.clipboard") { Clipboard.copy(session.terminalView.allText()) }
                     Divider()
@@ -432,6 +448,18 @@ struct TerminalScreen: View {
         .padding(16)
         .animation(.snappy, value: session.atBottom)
         .animation(.snappy, value: session.state)
+    }
+
+    private func quickReply(_ title: String, _ bytes: [UInt8], _ color: Color) -> some View {
+        Button {
+            session.send(bytes)
+            Haptics.success()
+        } label: {
+            Text(title).font(.subheadline.weight(.semibold)).padding(.horizontal, 6)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
+        .tint(color)
     }
 
     /// 硬件键盘快捷键（iPad / 蓝牙键盘），按住 ⌘ 时系统会列出

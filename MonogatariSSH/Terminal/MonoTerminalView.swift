@@ -94,8 +94,8 @@ final class MonoTerminalView: TerminalView {
     /// 仅在键盘已弹出、普通屏、停在底部时生效；按字符数而非格数计算（中文占两格只需一次方向键）。
     @objc private func handleCursorTap(_ g: UITapGestureRecognizer) {
         guard g.state == .ended, AppSettings.shared.tapMovesCursor, isFirstResponder,
-              !programOwnsScroll, isAtBottom, !hasActiveSelection,
-              let st = terminalStateSnapshot() else { return }
+              !programOwnsScroll, isAtBottom, !hasActiveSelection else { return }
+        let st = terminalStateSnapshot()
         let cols = st.dimensions.cols, rows = st.dimensions.rows
         guard cols > 0, rows > 0 else { return }
         let p = g.location(in: self)

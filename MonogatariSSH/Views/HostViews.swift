@@ -191,7 +191,7 @@ struct HostEditView: View {
                         HostAvatar(host: host, size: 30)
                         Picker("图标", selection: $host.icon) {
                             ForEach(HostIcon.allCases) { i in
-                                Label(i.rawValue.capitalized, systemImage: i.symbol).tag(i)
+                                Label(i.title, systemImage: i.symbol).tag(i)
                             }
                         }
                     }

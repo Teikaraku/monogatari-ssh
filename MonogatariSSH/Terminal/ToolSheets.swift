@@ -24,6 +24,8 @@ struct TmuxManagerSheet: View {
     @State private var newDir = ""
     @State private var creating = false
     @State private var killing: TmuxSessionInfo?
+    @State private var renaming: TmuxSessionInfo?
+    @State private var renameText = ""
 
     var body: some View {
         NavigationStack {
@@ -38,6 +40,7 @@ struct TmuxManagerSheet: View {
                             .contextMenu {
                                 Button("在新会话中打开", systemImage: "rectangle.stack.badge.plus") { open(t.name, agent: .none) }
                                 Button("复制接入命令", systemImage: "doc.on.doc") { Clipboard.copy("tmux attach -t \(t.name)") }
+                                Button("重命名", systemImage: "pencil") { renameText = t.name; renaming = t }
                                 Button("结束会话", systemImage: "xmark.circle", role: .destructive) { killing = t }
                             }
                     }
@@ -80,6 +83,13 @@ struct TmuxManagerSheet: View {
                 ToolbarItem(placement: .primaryAction) { Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") } }
             }
             .task { await load() }
+            .alert("重命名 tmux 会话", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("新名称", text: $renameText).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("确定") {
+                    if let r = renaming { Task { await rename(r.name, to: renameText) } }
+                }
+                Button("取消", role: .cancel) {}
+            }
             .confirmationDialog("结束 tmux 会话「\(killing?.name ?? "")」？", isPresented: Binding(get: { killing != nil }, set: { if !$0 { killing = nil } }), titleVisibility: .visible) {
                 Button("结束", role: .destructive) {
                     if let k = killing { Task { await kill(k.name) } }
@@ -135,6 +145,18 @@ struct TmuxManagerSheet: View {
         }
     }
 
+    private func rename(_ old: String, to new: String) async {
+        let clean = new.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "'", with: "").replacingOccurrences(of: " ", with: "-")
+        guard !clean.isEmpty, let t = session.sshTransport else { return }
+        _ = try? await t.exec("tmux rename-session -t '\(old.replacingOccurrences(of: "'", with: ""))' '\(clean)'; true")
+        // 当前会话接入的就是它：同步本地记录，重连时用新名字
+        if session.host.tmuxSession == old || (session.host.tmuxSession.isEmpty && old == "mono") {
+            session.host.tmuxSession = clean
+        }
+        Haptics.success()
+        await load()
+    }
+
     private func kill(_ name: String) async {
         guard let t = session.sshTransport else { return }
         _ = try? await t.exec("tmux kill-session -t '\(name.replacingOccurrences(of: "'", with: ""))'; true")
@@ -171,6 +193,7 @@ struct ServerStats {
     var diskTotal: Double = 0
     var diskUsed: Double = 0
     var agents: [String] = []
+    var top: [String] = []
 }
 
 /// 服务器状态：CPU / 内存 / 磁盘 / 负载 / 运行中的 agent 进程，每 3 秒刷新
@@ -189,7 +212,8 @@ struct ServerStatusSheet: View {
     a=$(head -1 /proc/stat); sleep 0.4; b=$(head -1 /proc/stat); echo "cpu1=$a"; echo "cpu2=$b"; \
     free -b 2>/dev/null | awk '/^Mem:/{print "mem="$2" "$3}'; \
     df -B1 / 2>/dev/null | awk 'NR==2{print "disk="$2" "$3}'; \
-    ps -eo pid,etime,comm,args 2>/dev/null | grep -E '[c]laude|[c]odex|[g]emini' | awk '{print "agent="$1" "$2" "$3}' | head -8; true
+    ps -eo pid,etime,comm,args 2>/dev/null | grep -E '[c]laude|[c]odex|[g]emini' | awk '{print "agent="$1" "$2" "$3}' | head -8; \
+    ps -eo pcpu,pmem,comm --sort=-pcpu 2>/dev/null | sed -n '2,6p' | awk '{print "top="$1" "$2" "$3}'; true
     """
 
     var body: some View {
@@ -208,6 +232,11 @@ struct ServerStatusSheet: View {
                               detail: "\(bytes(s.memUsed)) / \(bytes(s.memTotal))", colors: Color.tileGreen)
                         gauge("磁盘 /", value: s.diskTotal > 0 ? s.diskUsed / s.diskTotal : 0,
                               detail: "\(bytes(s.diskUsed)) / \(bytes(s.diskTotal))", colors: Color.tileOrange)
+                    }
+                    if !s.top.isEmpty {
+                        Section("占用最高的进程") {
+                            ForEach(s.top, id: \.self) { Text($0).font(.callout.monospaced()) }
+                        }
                     }
                     Section("运行中的 agent") {
                         if s.agents.isEmpty {
@@ -289,6 +318,9 @@ struct ServerStatusSheet: View {
             case "cpu2": cpu2 = nums
             case "mem": if nums.count >= 2 { s.memTotal = nums[0]; s.memUsed = nums[1] }
             case "disk": if nums.count >= 2 { s.diskTotal = nums[0]; s.diskUsed = nums[1] }
+            case "top":
+                let p = v.split(separator: " ")
+                if p.count >= 3 { s.top.append("\(p[2])   CPU \(p[0])%   内存 \(p[1])%") }
             case "agent":
                 let p = v.split(separator: " ")
                 if p.count >= 3 { s.agents.append("\(p[2])  pid \(p[0])  运行 \(p[1])") }

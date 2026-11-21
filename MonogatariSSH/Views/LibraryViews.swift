@@ -256,6 +256,7 @@ struct KnownHostsView: View {
 
 struct SnippetsView: View {
     @EnvironmentObject var store: AppStore
+    @EnvironmentObject var sessions: SessionManager
     @State private var editing: Snippet?
 
     var groups: [String] {
@@ -275,7 +276,19 @@ struct SnippetsView: View {
                                 Text(s.command).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }
-                        .contextMenu { Button("复制命令", systemImage: "doc.on.doc") { Clipboard.copy(s.command) } }
+                        .contextMenu {
+                            Button("复制命令", systemImage: "doc.on.doc") { Clipboard.copy(s.command) }
+                            if !sessions.sessions.isEmpty && s.variables.isEmpty {
+                                Section("在会话中运行") {
+                                    ForEach(sessions.sessions) { sess in
+                                        Button(sess.displayTitle, systemImage: "play.fill") {
+                                            sess.run(s)
+                                            sessions.show(sess)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         .swipeActions {
                             Button(role: .destructive) { store.snippets.removeAll { $0.id == s.id } } label: { Label("删除", systemImage: "trash") }
                         }

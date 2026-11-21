@@ -268,6 +268,8 @@ struct SFTPBrowser: View {
     @Environment(\.dismiss) var dismiss
     @State private var importing = false
     @State private var newFolder = false
+    @State private var newFile = false
+    @State private var fileName = ""
     @State private var folderName = ""
     @State private var renaming: RemoteEntry?
     @State private var renameText = ""
@@ -330,6 +332,7 @@ struct SFTPBrowser: View {
                 Menu {
                     Button("上传文件", systemImage: "square.and.arrow.up") { importing = true }
                     Button("新建文件夹", systemImage: "folder.badge.plus") { folderName = ""; newFolder = true }
+                    Button("新建文件", systemImage: "doc.badge.plus") { fileName = "CLAUDE.md"; newFile = true }
                     Button("前往路径…", systemImage: "arrow.right.circle") { pathText = model.path; pathInput = true }
                     Divider()
                     Button("在终端 cd 到这里", systemImage: "terminal") {
@@ -352,6 +355,27 @@ struct SFTPBrowser: View {
         }
         .quickLookPreview($model.preview)
         .sheet(item: $model.editing) { f in RemoteTextEditor(model: model, file: f) }
+        .alert("新建文件", isPresented: $newFile) {
+            TextField("文件名", text: $fileName).textInputAutocapitalization(.never).autocorrectionDisabled()
+            Button("创建并编辑") {
+                let name = fileName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                let path = (model.path == "/" ? "" : model.path) + "/" + name
+                Task {
+                    do {
+                        if !model.entries.contains(where: { $0.name == name }) { try await model.writeText(path, "") }
+                        await model.load(model.path)
+                        let entry = model.entries.first { $0.name == name }
+                            ?? RemoteEntry(name: name, path: path, isDir: false, isLink: false, size: 0, modified: nil, permissions: nil)
+                        let text = await model.readText(entry) ?? ""
+                        model.editing = EditableFile(entry: entry, text: text)
+                    } catch {
+                        model.error = "创建失败：\(error.localizedDescription)"
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
         .alert("新建文件夹", isPresented: $newFolder) {
             TextField("名称", text: $folderName)
             Button("创建") { Task { await model.mkdir(folderName) } }

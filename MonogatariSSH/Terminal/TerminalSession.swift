@@ -13,7 +13,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     let id = UUID()
     @Published var host: Host
     /// 用户给会话起的名字（并行多个 agent 时区分用）
-    @Published var label: String = ""
+    @Published var label: String = "" { didSet { SessionManager.shared.persistSoon() } }
     var displayTitle: String { label.isEmpty ? host.displayName : label }
     @Published var state: State = .connecting
     /// 标题单独放：Claude Code 会高频刷新终端标题（转圈动画），不能让它重绘整个终端页
@@ -157,6 +157,32 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             default: break
             }
         }
+    }
+
+    /// 提取 Claude Code 最后一条回复（以 ⏺ 开头的段落，直到输入框）
+    func lastAgentReply() -> String? {
+        let lines = terminalView.allText().split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        // 最后一个「⏺ 文本」（排除工具调用如 ⏺ Bash(…) / Read(…)）
+        guard let start = lines.lastIndex(where: { l in
+            let t = l.trimmingCharacters(in: .whitespaces)
+            guard t.hasPrefix("⏺") else { return false }
+            let body = t.dropFirst().trimmingCharacters(in: .whitespaces)
+            return !(body.range(of: #"^[A-Za-z]+\("#, options: .regularExpression) != nil)
+        }) else { return nil }
+        var out: [String] = []
+        for l in lines[start...] {
+            let t = l.trimmingCharacters(in: .whitespaces)
+            if !out.isEmpty && (t.hasPrefix("╭") || t.hasPrefix("⏺") || t.hasPrefix("> ") || t.hasPrefix("✻") || t.hasPrefix("·")) { break }
+            var line = l
+            if let r = line.range(of: "⏺") { line.removeSubrange(line.startIndex..<r.upperBound) }
+            out.append(line.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression))
+        }
+        // 去掉公共缩进与首尾空行
+        while out.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { out.removeLast() }
+        let indent = out.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { $0.prefix(while: { $0 == " " }).count }.min() ?? 0
+        let text = out.map { String($0.dropFirst(min(indent, $0.prefix(while: { $0 == " " }).count))) }.joined(separator: "\n")
+        return text.isEmpty ? nil : text
     }
 
     /// 设置变化后同步到已打开的终端
@@ -354,6 +380,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         case .selectMode: NotificationCenter.default.post(name: .monoShowOutput, object: id)
         case .slashPalette: NotificationCenter.default.post(name: .monoShowSlash, object: id)
         case .history: NotificationCenter.default.post(name: .monoShowHistory, object: id)
+        case .copyReply:
+            if let t = lastAgentReply() { Clipboard.copy(t) } else { Toast.shared.show("没有找到 agent 回复") }
         }
     }
 
@@ -483,7 +511,8 @@ enum AgentStatus: Equatable {
             return .working
         }
         if tail.contains("do you want to") || tail.contains("❯ 1.") || tail.contains("› 1.") || tail.contains("(y/n)")
-            || tail.contains("[y/n]") || tail.contains("allow this") || tail.contains("approve") {
+            || tail.contains("[y/n]") || tail.contains("allow this") || tail.contains("approve")
+            || tail.contains("allow command") || tail.contains("apply this change") || tail.contains("waiting for your") {
             return .needsInput
         }
         if tail.contains("? for shortcuts") || tail.contains("shift+tab to cycle") || tail.contains("> try") || tail.contains("│ >") {
@@ -578,19 +607,32 @@ final class SessionManager: ObservableObject {
                 h.agent = .none // 恢复时不重复启动 agent，tmux 会直接接回现场
                 return h
             }
+            let labels = UserDefaults.standard.stringArray(forKey: restoreKey + ".labels") ?? []
+            restorableLabels = labels.count == hosts.count ? hosts.indices.compactMap { i in
+                AppStore.shared.host(hosts[i].id) == nil ? nil : labels[i]
+            } : []
         }
     }
+
+    private var restorableLabels: [String] = []
+
+    func persistSoon() { persist() }
 
     private func persist() {
         guard !DemoData.active else { return }
         let hosts = sessions.map(\.host)
         if let data = try? JSONEncoder().encode(hosts) { UserDefaults.standard.set(data, forKey: restoreKey) }
+        UserDefaults.standard.set(sessions.map(\.label), forKey: restoreKey + ".labels")
     }
 
     func restoreAll() {
         let list = restorable
+        let labels = restorableLabels
         restorable = []
-        for h in list { _ = open(h) }
+        for (i, h) in list.enumerated() {
+            let s = open(h)
+            if i < labels.count { s.label = labels[i] }
+        }
         if let first = sessions.first { path.append(Route.terminal(first.id)) }
     }
 
