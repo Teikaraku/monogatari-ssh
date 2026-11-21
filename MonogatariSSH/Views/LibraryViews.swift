@@ -308,7 +308,7 @@ struct SnippetEditor: View {
                     Toggle("发送后自动回车", isOn: $snippet.autoReturn)
                     Toggle("作为粘贴发送", isOn: $snippet.asPaste)
                 } footer: {
-                    Text("多行提示词建议开启「作为粘贴发送」，agent 会把它当成一整段输入而不是逐行执行。")
+                    Text("多行提示词建议开启「作为粘贴发送」，agent 会把它当成一整段输入而不是逐行执行。命令里可写 {{变量}}，运行时会先让你填写，例如 git commit -m \"{{说明}}\"。")
                 }
             }
             .navigationTitle(snippet.name.isEmpty ? "新建片段" : "编辑片段")

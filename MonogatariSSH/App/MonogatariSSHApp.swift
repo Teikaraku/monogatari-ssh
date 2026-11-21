@@ -26,6 +26,7 @@ enum AppTab: Hashable { case home, sessions, settings }
 struct RootView: View {
     @EnvironmentObject var sessions: SessionManager
     @EnvironmentObject var settings: AppSettings
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: AppTab = DemoData.initialTab
 
     var body: some View {
@@ -57,6 +58,13 @@ struct RootView: View {
             }
             .tabItem { Label("设置", systemImage: "gearshape.fill") }
             .tag(AppTab.settings)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: Lifecycle.didEnterBackground()
+            case .active: Lifecycle.didBecomeActive()
+            default: break
+            }
         }
         .onChange(of: sessions.sessions.contains { $0.state == .connected }) { _, connected in
             UIApplication.shared.isIdleTimerDisabled = connected && settings.keepAwake

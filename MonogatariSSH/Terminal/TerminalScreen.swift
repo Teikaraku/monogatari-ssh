@@ -44,6 +44,8 @@ struct TerminalScreen: View {
     @State private var confirmClose = false
     @State private var showSearch = false
     @State private var showOutput = false
+    @State private var showTmux = false
+    @State private var showStatus = false
 
     private var theme: TerminalTheme { session.theme }
 
@@ -83,6 +85,8 @@ struct TerminalScreen: View {
             if n.object as? UUID == session.id { showOutput = true }
         }
         .sheet(isPresented: $showOutput, onDismiss: refocus) { OutputBrowser(session: session) }
+        .sheet(isPresented: $showTmux, onDismiss: refocus) { TmuxManagerSheet(session: session) }
+        .sheet(isPresented: $showStatus, onDismiss: refocus) { ServerStatusSheet(session: session) }
         .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
         .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
         .sheet(isPresented: $showInfo, onDismiss: refocus) { HostInfoSheet(host: session.host) }
@@ -124,13 +128,40 @@ struct TerminalScreen: View {
             .glassCapsule()
 
             Spacer(minLength: 4)
-            VStack(spacing: 1) {
-                Text(session.host.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-                statusLine
+            Menu {
+                Section("切换会话") {
+                    ForEach(sessions.sessions) { s in
+                        Button {
+                            guard s.id != session.id else { return }
+                            switchTo(s)
+                        } label: {
+                            Label("\(s.host.displayName)\(s.host.restore == .tmux ? " · " + s.host.effectiveTmuxName : "")\(s.agentStatus.label.map { " · " + $0 } ?? "")",
+                                  systemImage: s.id == session.id ? "checkmark" : s.agentStatus.symbol)
+                        }
+                    }
+                }
+                if session.host.proto == .ssh {
+                    Button("新开同一主机的会话", systemImage: "plus.rectangle.on.rectangle") {
+                        var h = session.host
+                        if h.restore == .tmux { h.tmuxSession = h.effectiveTmuxName + "-\(Int.random(in: 2...99))" }
+                        let s = sessions.open(h)
+                        switchTo(s)
+                    }
+                }
+            } label: {
+                VStack(spacing: 1) {
+                    HStack(spacing: 3) {
+                        Text(session.host.displayName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if sessions.sessions.count > 1 {
+                            Image(systemName: "chevron.down").font(.caption2.weight(.bold)).opacity(0.6)
+                        }
+                    }
+                    statusLine
+                }
+                .foregroundStyle(theme.isDark ? .white : .black)
             }
-            .foregroundStyle(theme.isDark ? .white : .black)
             Spacer(minLength: 4)
 
             HStack(spacing: 0) {
@@ -145,6 +176,11 @@ struct TerminalScreen: View {
                     Button("命令片段", systemImage: "text.badge.star") { showSnippets = true }
                     Button("搜索输出", systemImage: "magnifyingglass") { withAnimation(.snappy) { showSearch = true } }
                     Button("选择 / 浏览输出", systemImage: "text.viewfinder") { showOutput = true }
+                    if session.host.proto == .ssh {
+                        Divider()
+                        Button("tmux 会话 / 并行 agent", systemImage: "square.stack.3d.up") { showTmux = true }
+                        Button("服务器状态", systemImage: "gauge.with.dots.needle.33percent") { showStatus = true }
+                    }
                     Button("复制屏幕内容", systemImage: "doc.on.doc") { Clipboard.copy(session.terminalView.screenText()) }
                     Button("复制全部输出", systemImage: "doc.on.clipboard") { Clipboard.copy(session.terminalView.allText()) }
                     Divider()
@@ -176,7 +212,16 @@ struct TerminalScreen: View {
             HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("连接中") }
                 .font(.caption2).foregroundStyle(.secondary)
         case .connected:
-            TitleLine(model: session.titleModel, hostName: session.host.displayName)
+            if let label = session.agentStatus.label {
+                HStack(spacing: 4) {
+                    Circle().fill(session.agentStatus.color).frame(width: 6, height: 6)
+                    Text(label)
+                }
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+            } else {
+                TitleLine(model: session.titleModel, hostName: session.host.displayName)
+            }
         case .disconnected:
             Text("已断开").font(.caption2).foregroundStyle(.orange)
         }
@@ -237,6 +282,13 @@ struct TerminalScreen: View {
         .padding(16)
         .animation(.snappy, value: session.atBottom)
         .animation(.snappy, value: session.state)
+    }
+
+    /// 替换导航栈顶部的终端页，不堆叠
+    private func switchTo(_ s: TerminalSession) {
+        Haptics.tap()
+        if !sessions.path.isEmpty { sessions.path.removeLast() }
+        DispatchQueue.main.async { sessions.path.append(Route.terminal(s.id)) }
     }
 
     private func refocus() {

@@ -50,8 +50,22 @@ struct SessionRow: View {
                             .offset(x: 3, y: 3)
                     }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(session.host.displayName).font(.title3.weight(.medium)).foregroundStyle(.primary)
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(session.host.displayName).font(.title3.weight(.medium)).foregroundStyle(.primary)
+                        if session.host.restore == .tmux {
+                            Text(session.host.effectiveTmuxName)
+                                .font(.caption2.monospaced())
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.purple.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.purple)
+                        }
+                    }
+                    if let label = session.agentStatus.label, session.state == .connected {
+                        Label(label, systemImage: session.agentStatus.symbol)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(session.agentStatus.color)
+                    }
+                    Text(subtitle).font(.subheadline.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 Text(session.startedAt, style: .relative)
@@ -74,7 +88,9 @@ struct SessionRow: View {
     var subtitle: String {
         switch session.state {
         case .connecting: return "连接中…"
-        case .connected: return session.title.isEmpty ? "\(session.host.username)@\(session.host.address)" : session.title
+        case .connected:
+            if !session.lastLine.isEmpty { return session.lastLine }
+            return session.title.isEmpty ? "\(session.host.username)@\(session.host.address)" : session.title
         case .disconnected(let m): return m ?? "已断开"
         }
     }

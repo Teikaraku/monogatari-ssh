@@ -7,6 +7,27 @@ struct HomeView: View {
 
     var body: some View {
         List {
+            if !sessions.restorable.isEmpty && sessions.sessions.isEmpty {
+                Section {
+                    HStack(spacing: 14) {
+                        IconTile(symbol: "arrow.counterclockwise", colors: Color.tilePurple, size: 50, corner: 13)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("继续上次的 \(sessions.restorable.count) 个会话").font(.headline)
+                            Text(sessions.restorable.map { $0.restore == .tmux ? "\($0.displayName)·\($0.effectiveTmuxName)" : $0.displayName }.joined(separator: "、"))
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 6)
+                    HStack {
+                        Button("全部恢复") { sessions.restoreAll() }
+                            .buttonStyle(.borderedProminent)
+                        Button("忽略") { withAnimation { sessions.dismissRestore() } }
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(.bottom, 4)
+                }
+            }
             Section { nav(.hosts, "主机", "desktopcomputer", Color.tileIndigo, count: store.hosts.count) }
             Section { nav(.keys, "密钥", "key.fill", Color.tileOrange, count: store.keys.count) }
             Section { nav(.knownHosts, "指纹", "person.text.rectangle.fill", Color.tilePink, count: store.knownHosts.count) }
@@ -21,7 +42,7 @@ struct HomeView: View {
                 } header: {
                     Text("最近")
                         .font(.title2.bold())
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color(uiColor: .label))
                         .textCase(nil)
                         .padding(.leading, -16)
                         .padding(.top, 12)

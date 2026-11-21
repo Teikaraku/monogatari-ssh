@@ -34,6 +34,12 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     private(set) var bar: KeyboardBar!
     private var delegateProxy: Proxy!
     private var reconnecting = false
+    private(set) var wasConnectedOnce = false
+    @Published private(set) var agentStatus: AgentStatus = .unknown
+    private var statusTimer: Timer?
+    /// 最近一行有意义的输出（会话列表预览用）
+    @Published private(set) var lastLine = ""
+    private var oscObservation: TerminalOscObservation?
 
     var sshTransport: SSHTransport? { transport as? SSHTransport }
     var theme: TerminalTheme { TerminalTheme.find(host.themeID) }
@@ -45,7 +51,21 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         delegateProxy = Proxy(owner: self)
         terminalView.terminalDelegate = delegateProxy
         configureView()
+        observeNotifications()
         connect()
+    }
+
+    /// agent 通过 OSC 9 / 777 / 99 发出的通知 → 系统通知（app 在后台时）
+    private func observeNotifications() {
+        let name = host.displayName
+        let key = id.uuidString
+        oscObservation = terminalView.observeOscEvents { ev in
+            guard [9, 99, 777].contains(ev.code) else { return }
+            Task { @MainActor in
+                guard let parsed = Notifier.parse(code: ev.code, payload: ev.payload) else { return }
+                Notifier.post(title: parsed.0 ?? name, body: parsed.1.isEmpty ? "有新消息" : parsed.1, key: key)
+            }
+        }
     }
 
     // MARK: 视图配置
@@ -80,6 +100,39 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         }
     }
 
+    // MARK: Agent 状态识别
+
+    private func startStatusPolling() {
+        statusTimer?.invalidate()
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollStatus() }
+        }
+        statusTimer?.tolerance = 0.5
+    }
+
+    private func pollStatus() {
+        guard case .connected = state else { return }
+        let rows = terminalView.screenText().split(separator: "\n").map(String.init)
+        let tail = rows.suffix(14)
+        let joined = tail.joined(separator: "\n").lowercased()
+        let new = AgentStatus.detect(tail: joined)
+        if let line = rows.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.contains("─") && !$0.contains("━") }) {
+            let clean = line.trimmingCharacters(in: CharacterSet(charactersIn: " │|╭╮╰╯>"))
+            if clean != lastLine { lastLine = String(clean.prefix(120)) }
+        }
+        guard new != agentStatus else { return }
+        let old = agentStatus
+        agentStatus = new
+        // 工作 → 等待确认 / 空闲：提醒（app 在后台时）
+        if old == .working {
+            switch new {
+            case .needsInput: Notifier.post(title: host.displayName, body: "需要你的确认：" + lastLine, key: id.uuidString + ".status")
+            case .idle: Notifier.post(title: host.displayName, body: "任务已完成", key: id.uuidString + ".status")
+            default: break
+            }
+        }
+    }
+
     func setAtBottom(_ v: Bool) {
         if atBottom != v { atBottom = v }
     }
@@ -100,6 +153,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             state = .connected
             titleModel.update("claude")
             terminalView.feed(text: DemoData.terminalSample)
+            startStatusPolling()
             return
         }
         state = .connecting
@@ -132,6 +186,9 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
                 try await t.start(cols: cols, rows: rows)
                 guard self.transport === t else { t.close(); return }
                 self.state = .connected
+                self.wasConnectedOnce = true
+                self.startStatusPolling()
+                Notifier.requestIfNeeded()
                 self.reconnecting = false
                 AppStore.shared.markConnected(host.id)
                 Haptics.success()
@@ -197,6 +254,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     }
 
     func disconnect() {
+        statusTimer?.invalidate()
         transport?.onClose = nil
         transport?.close()
         transport = nil
@@ -330,7 +388,10 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         }
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {
-            Task { @MainActor in Haptics.soft() }
+            onMain { o in
+                Haptics.soft()
+                Notifier.post(title: o.host.displayName, body: o.host.agent == .none ? "终端响铃" : "\(o.host.agent.title) 需要你的确认或已完成任务", key: o.id.uuidString)
+            }
         }
         func clipboardCopy(source: TerminalView, content: Data) {
             if let s = String(data: content, encoding: .utf8) {
@@ -339,6 +400,52 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             if let url = URL(string: link) { Task { @MainActor in UIApplication.shared.open(url) } }
+        }
+    }
+}
+
+/// 从屏幕内容推断 agent 状态（以 Claude Code 为主，兼容 Codex / Gemini 的常见提示）
+enum AgentStatus: Equatable {
+    case unknown, working, needsInput, idle
+
+    static func detect(tail: String) -> AgentStatus {
+        if tail.contains("esc to interrupt") || tail.contains("esc to cancel") || tail.contains("ctrl+c to interrupt") {
+            return .working
+        }
+        if tail.contains("do you want to") || tail.contains("❯ 1.") || tail.contains("› 1.") || tail.contains("(y/n)")
+            || tail.contains("[y/n]") || tail.contains("allow this") || tail.contains("approve") {
+            return .needsInput
+        }
+        if tail.contains("? for shortcuts") || tail.contains("shift+tab to cycle") || tail.contains("> try") || tail.contains("│ >") {
+            return .idle
+        }
+        return .unknown
+    }
+
+    var label: String? {
+        switch self {
+        case .working: return "工作中"
+        case .needsInput: return "等待确认"
+        case .idle: return "空闲"
+        case .unknown: return nil
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .working: return .blue
+        case .needsInput: return .orange
+        case .idle: return .green
+        case .unknown: return .gray
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .working: return "ellipsis.circle.fill"
+        case .needsInput: return "exclamationmark.bubble.fill"
+        case .idle: return "checkmark.circle.fill"
+        case .unknown: return "circle"
         }
     }
 }
@@ -376,12 +483,48 @@ extension Notification.Name {
 @MainActor
 final class SessionManager: ObservableObject {
     static let shared = SessionManager()
-    @Published var sessions: [TerminalSession] = []
+    @Published var sessions: [TerminalSession] = [] { didSet { persist() } }
     @Published var path = NavigationPath()
+    /// 上次 app 退出前开着的会话（主机快照，含 tmux 会话名），用于一键恢复
+    @Published private(set) var restorable: [Host] = []
+
+    private let restoreKey = "lastSessions"
+
+    init() {
+        if !DemoData.active, let data = UserDefaults.standard.data(forKey: restoreKey),
+           let hosts = try? JSONDecoder().decode([Host].self, from: data) {
+            // 只恢复仍存在的主机（用最新配置，但保留会话自己的 tmux 名）
+            restorable = hosts.compactMap { snap in
+                guard var h = AppStore.shared.host(snap.id) else { return nil }
+                h.tmuxSession = snap.tmuxSession
+                h.restore = snap.restore
+                h.agent = .none // 恢复时不重复启动 agent，tmux 会直接接回现场
+                return h
+            }
+        }
+    }
+
+    private func persist() {
+        guard !DemoData.active else { return }
+        let hosts = sessions.map(\.host)
+        if let data = try? JSONEncoder().encode(hosts) { UserDefaults.standard.set(data, forKey: restoreKey) }
+    }
+
+    func restoreAll() {
+        let list = restorable
+        restorable = []
+        for h in list { _ = open(h) }
+        if let first = sessions.first { path.append(Route.terminal(first.id)) }
+    }
+
+    func dismissRestore() {
+        restorable = []
+    }
 
     func open(_ host: Host) -> TerminalSession {
         let s = TerminalSession(host: host)
         sessions.append(s)
+        restorable = []
         return s
     }
 

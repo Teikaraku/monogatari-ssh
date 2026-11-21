@@ -302,6 +302,17 @@ final class SSHTransport: TerminalTransport {
         onClose?(error)
     }
 
+    /// 在同一连接上开 exec 通道执行命令，返回输出（不影响终端）
+    func exec(_ command: String) async throws -> String {
+        guard let client else { throw ConnectError.message("未连接") }
+        do {
+            let out = try await client.executeCommand(command, mergeStreams: true)
+            return String(buffer: out)
+        } catch let e as SSHClient.CommandFailed {
+            throw ConnectError.message("命令退出码 \(e.exitCode)")
+        }
+    }
+
     /// 为 SFTP 等复用当前连接
     func openSFTP() async throws -> SFTPClient {
         guard let client else { throw ConnectError.message("未连接") }

@@ -4,6 +4,12 @@ import NIOCore
 import UniformTypeIdentifiers
 import QuickLook
 
+struct EditableFile: Identifiable {
+    var id: String { entry.path }
+    let entry: RemoteEntry
+    var text: String
+}
+
 struct RemoteEntry: Identifiable, Hashable {
     var id: String { path }
     let name: String
@@ -13,6 +19,17 @@ struct RemoteEntry: Identifiable, Hashable {
     let size: UInt64
     let modified: Date?
     let permissions: UInt32?
+
+    var isTextLike: Bool {
+        guard !isDir else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        let textExt: Set<String> = ["md", "txt", "log", "json", "yml", "yaml", "toml", "ini", "conf", "cfg", "env", "sh", "bash", "zsh",
+                                    "py", "js", "ts", "tsx", "jsx", "mjs", "cjs", "swift", "go", "rs", "c", "h", "cpp", "hpp", "java", "kt",
+                                    "rb", "php", "css", "scss", "html", "xml", "sql", "csv", "service", "gitignore", "dockerfile", "lock", "prisma", "vue", "svelte"]
+        if textExt.contains(ext) { return true }
+        let n = name.lowercased()
+        return ext.isEmpty && (n.hasPrefix(".") || ["dockerfile", "makefile", "readme", "license", "authorized_keys", "config", "hosts", "crontab"].contains(n))
+    }
 
     var symbol: String {
         if isDir { return "folder.fill" }
@@ -37,6 +54,7 @@ final class SFTPModel: ObservableObject {
     @Published var error: String?
     @Published var showHidden = false
     @Published var preview: URL?
+    @Published var editing: EditableFile?
 
     let session: TerminalSession
     private var client: SFTPClient?
@@ -93,7 +111,40 @@ final class SFTPModel: ObservableObject {
             if error == nil && path != before { return }
             error = nil
         }
+        if e.isTextLike && e.size < 2_000_000 {
+            if let text = await readText(e) { editing = EditableFile(entry: e, text: text); return }
+        }
         if let url = await download(e) { preview = url }
+    }
+
+    func readText(_ e: RemoteEntry) async -> String? {
+        do {
+            let c = try await sftp()
+            let file = try await c.openFile(filePath: e.path, flags: .read)
+            let buf = try await file.readAll()
+            try await file.close()
+            let data = Data(buf.readableBytesView)
+            if data.prefix(4096).contains(0) { return nil } // 二进制
+            return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        } catch {
+            self.error = "读取失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func writeText(_ path: String, _ text: String) async throws {
+        let c = try await sftp()
+        let file = try await c.openFile(filePath: path, flags: [.write, .create, .truncate])
+        let data = Data(text.utf8)
+        var offset: UInt64 = 0
+        var rest = data[...]
+        while !rest.isEmpty {
+            let chunk = rest.prefix(64 * 1024)
+            try await file.write(ByteBuffer(bytes: chunk), at: offset)
+            offset += UInt64(chunk.count)
+            rest = rest.dropFirst(chunk.count)
+        }
+        try await file.close()
     }
 
     func download(_ e: RemoteEntry) async -> URL? {
@@ -278,6 +329,7 @@ struct SFTPBrowser: View {
             }
         }
         .quickLookPreview($model.preview)
+        .sheet(item: $model.editing) { f in RemoteTextEditor(model: model, file: f) }
         .alert("新建文件夹", isPresented: $newFolder) {
             TextField("名称", text: $folderName)
             Button("创建") { Task { await model.mkdir(folderName) } }
@@ -334,4 +386,80 @@ struct SFTPBrowser: View {
     }
 
     private func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+}
+
+
+/// 远程文本编辑器：改完直接经 SFTP 写回（适合改 CLAUDE.md、.env、配置文件）
+struct RemoteTextEditor: View {
+    @ObservedObject var model: SFTPModel
+    let file: EditableFile
+    @Environment(\.dismiss) var dismiss
+    @State private var text: String = ""
+    @State private var saving = false
+    @State private var confirmDiscard = false
+    @State private var errorText: String?
+
+    var dirty: Bool { text != file.text }
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $text)
+                .font(.system(size: 13, design: .monospaced))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 8)
+                .navigationTitle(file.entry.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .safeAreaInset(edge: .bottom) {
+                    if let errorText {
+                        Text(errorText).font(.footnote).foregroundStyle(.red).padding(8)
+                            .frame(maxWidth: .infinity).background(.regularMaterial)
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { if dirty { confirmDiscard = true } else { dismiss() } } label: { Image(systemName: "xmark") }
+                    }
+                    ToolbarItem(placement: .principal) {
+                        VStack(spacing: 0) {
+                            Text(file.entry.name).font(.headline)
+                            Text(dirty ? "未保存" : "\(text.count) 字符").font(.caption2).foregroundStyle(dirty ? .orange : .secondary)
+                        }
+                    }
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Menu {
+                            Button("复制全部", systemImage: "doc.on.doc") { Clipboard.copy(text) }
+                            Button("复制路径", systemImage: "link") { Clipboard.copy(file.entry.path) }
+                            Button("作为 @文件 发给 agent", systemImage: "at") {
+                                model.session.send(text: "@\(file.entry.path) ")
+                                dismiss()
+                            }
+                        } label: { Image(systemName: "ellipsis") }
+                        Button { Task { await save() } } label: {
+                            if saving { ProgressView() } else { Image(systemName: "checkmark") }
+                        }
+                        .disabled(!dirty || saving)
+                    }
+                }
+        }
+        .interactiveDismissDisabled(dirty)
+        .onAppear { text = file.text }
+        .confirmationDialog("放弃未保存的修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("放弃修改", role: .destructive) { dismiss() }
+        }
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        do {
+            try await model.writeText(file.entry.path, text)
+            Haptics.success()
+            Toast.shared.show("已保存")
+            dismiss()
+            await model.load(model.path)
+        } catch {
+            errorText = "保存失败：\(error.localizedDescription)"
+        }
+    }
 }

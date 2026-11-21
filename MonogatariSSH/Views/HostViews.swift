@@ -3,6 +3,8 @@ import SwiftUI
 struct HostListView: View {
     @EnvironmentObject var store: AppStore
     @State private var adding = false
+    @State private var importing = false
+    @State private var quick = false
     @State private var query = ""
 
     var filtered: [Host] {
@@ -42,11 +44,17 @@ struct HostListView: View {
         .navigationTitle("主机")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { adding = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("添加主机")
+                Menu {
+                    Button("新建主机", systemImage: "plus") { adding = true }
+                    Button("快速连接", systemImage: "bolt") { quick = true }
+                    Button("导入 ssh config", systemImage: "square.and.arrow.down") { importing = true }
+                } label: { Image(systemName: "plus") } primaryAction: { adding = true }
+                .accessibilityLabel("添加主机")
             }
         }
         .sheet(isPresented: $adding) { HostEditView(host: nil) }
+        .sheet(isPresented: $importing) { SSHConfigImportView() }
+        .sheet(isPresented: $quick) { QuickConnectSheet() }
     }
 }
 

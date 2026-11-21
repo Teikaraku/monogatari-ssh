@@ -87,7 +87,11 @@ struct SettingsView: View {
                 }
                 HStack(spacing: 12) {
                     IconTile(symbol: "arrow.clockwise", colors: Color.tilePurple)
-                    Toggle("断线自动重连", isOn: $settings.autoReconnect)
+                    Toggle("断线 / 回到前台自动重连", isOn: $settings.autoReconnect)
+                }
+                HStack(spacing: 12) {
+                    IconTile(symbol: "bell.badge.fill", colors: Color.tileRed)
+                    Toggle("后台通知", isOn: $settings.notifyBell)
                 }
                 HStack(spacing: 12) {
                     IconTile(symbol: "sun.max.fill", colors: Color.tileOrange)
@@ -96,7 +100,7 @@ struct SettingsView: View {
             } header: {
                 Text("AI Agent")
             } footer: {
-                Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。自动重连仅对开启了会话恢复的主机生效。")
+                Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。后台通知：agent 从「工作中」变成「等待确认 / 完成」、响铃或发出 OSC 9/777 通知时提醒你（iOS 只给后台约 30 秒存活时间，长时间锁屏后回来会自动重连并接回 tmux）。")
             }
 
             Section("通用") {
