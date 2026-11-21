@@ -81,7 +81,7 @@ jobs:
             --prerelease --target "$GITHUB_SHA"
 
       - name: Build for simulator
-        if: always()
+
         run: |
           build() {
             xcodebuild \

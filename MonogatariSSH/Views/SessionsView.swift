@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionsView: View {
     @EnvironmentObject var sessions: SessionManager
+    @EnvironmentObject var store: AppStore
     let openTab: (AppTab) -> Void
 
     var body: some View {
@@ -25,6 +26,20 @@ struct SessionsView: View {
         }
         .navigationTitle("会话")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    ForEach(store.hosts) { h in
+                        Button {
+                            openTab(.home)
+                            DispatchQueue.main.async { sessions.connect(h) }
+                        } label: {
+                            Label(h.displayName, systemImage: h.icon.symbol)
+                        }
+                    }
+                } label: { Image(systemName: "plus") }
+                .disabled(store.hosts.isEmpty)
+                .accessibilityLabel("新建会话")
+            }
             if !sessions.sessions.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {

@@ -109,6 +109,25 @@ struct SettingsView: View {
                 Text("第二行快捷键默认提供 切换模式(⇧Tab)、换行、1/2/3 确认、/指令、@文件、粘贴、写作、片段 等 Claude Code 常用操作，可自定义增删排序。tmux 优化会开启鼠标滚动、5 万行历史、单行滚轮和零 Esc 延迟。后台通知：agent 从「工作中」变成「等待确认 / 完成」、响铃或发出 OSC 9/777 通知时提醒你（iOS 只给后台约 30 秒存活时间，长时间锁屏后回来会自动重连并接回 tmux）。")
             }
 
+            Section {
+                LabeledContent("Claude Code") {
+                    TextField("claude", text: $settings.cmdClaude).multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Codex") {
+                    TextField("codex", text: $settings.cmdCodex).multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Gemini CLI") {
+                    TextField("gemini", text: $settings.cmdGemini).multilineTextAlignment(.trailing)
+                }
+            } header: {
+                Text("Agent 启动命令")
+            } footer: {
+                Text("「连接后启动」与「新建 agent 会话」使用的命令，可带参数，例如 claude --model opus 或 ~/.local/bin/claude。留空使用默认。")
+            }
+            .font(.body.monospaced())
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+
             Section("数据") {
                 NavigationLink { BackupView() } label: {
                     HStack(spacing: 12) {
@@ -138,6 +157,7 @@ struct SettingsView: View {
         .navigationTitle("设置")
         .onChange(of: settings.fontSize) { _, _ in sessions.sessions.forEach { $0.refreshFont() } }
         .onChange(of: settings.fontName) { _, _ in sessions.sessions.forEach { $0.refreshFont() } }
+        .onChange(of: settings.agentBar) { _, _ in sessions.sessions.forEach { $0.rebuildBar() } }
     }
 
     var sensitivityLabel: String {

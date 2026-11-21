@@ -16,7 +16,8 @@ struct KeyListView: View {
                         IconTile(symbol: "key.fill", colors: Color.tileOrange, size: 40)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(k.name).font(.body.weight(.medium))
-                            Text("\(k.kind.title)\(k.hasPassphrase ? " · 有口令" : "")").font(.caption).foregroundStyle(.secondary)
+                            let used = store.hosts.filter { $0.auth == .key && $0.keyID == k.id }.count
+                            Text("\(k.kind.title)\(k.hasPassphrase ? " · 有口令" : "")\(used > 0 ? " · \(used) 台主机使用中" : "")").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -55,6 +56,7 @@ struct KeyListView: View {
 
 struct KeyDetailView: View {
     let key: SSHKeyItem
+    @EnvironmentObject var store: AppStore
     @State private var showPrivate = false
 
     var body: some View {
@@ -66,6 +68,19 @@ struct KeyDetailView: View {
                     Clipboard.copy("mkdir -p ~/.ssh && echo '\(key.publicKey)' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys")
                 }
                 ShareLink(item: key.publicKey) { Label("分享公钥", systemImage: "square.and.arrow.up") }
+            }
+            let users = store.hosts.filter { $0.auth == .key && $0.keyID == key.id }
+            if !users.isEmpty {
+                Section("使用此密钥的主机") {
+                    ForEach(users) { h in
+                        HStack(spacing: 12) {
+                            HostAvatar(host: h, size: 30)
+                            Text(h.displayName)
+                            Spacer()
+                            Text(h.address).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             Section("信息") {
                 LabeledContent("类型", value: key.kind.title)

@@ -201,7 +201,7 @@ struct ToastOverlay: View {
     var body: some View {
         VStack {
             if let m = toast.message {
-                Label(m, systemImage: "checkmark.circle.fill")
+                Label(m, systemImage: m.hasPrefix("已") ? "checkmark.circle.fill" : "info.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .glassCapsule()

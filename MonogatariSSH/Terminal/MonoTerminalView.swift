@@ -12,6 +12,10 @@ import SwiftTerm
 final class MonoTerminalView: TerminalView {
     var onFontSizeChange: ((CGFloat) -> Void)?
     var onUserScroll: (() -> Void)?
+    /// 为 true 时（tmux 会话），备用屏未开鼠标就不发方向键，避免误操作 shell 历史 / agent 选项
+    var suppressArrowScroll = false
+    /// 备用屏需要鼠标模式但未开启时回调（用于提示一键开启 tmux 鼠标）
+    var onNeedsMouseMode: (() -> Void)?
 
     private var wheelPan: UIPanGestureRecognizer!
     private var pinch: UIPinchGestureRecognizer!
@@ -125,7 +129,12 @@ final class MonoTerminalView: TerminalView {
                 sendMouseEvent(button: up ? 4 : 5, release: false, col: cols / 2, row: rows / 2)
             }
         } else if s.isAlternateBuffer {
-            for _ in 0..<count { up ? sendKeyUp() : sendKeyDown() }
+            if suppressArrowScroll {
+                stopMomentum()
+                onNeedsMouseMode?()
+            } else {
+                for _ in 0..<count { up ? sendKeyUp() : sendKeyDown() }
+            }
         }
     }
 

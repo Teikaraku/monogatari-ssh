@@ -43,13 +43,19 @@ enum AgentPreset: String, Codable, CaseIterable, Identifiable {
         case .custom: return "自定义命令"
         }
     }
+    /// 启动命令（可在「设置 → AI Agent」自定义，如 claude --model opus）
     var command: String? {
+        let d = UserDefaults.standard
+        func get(_ key: String, _ fallback: String) -> String {
+            let v = (d.string(forKey: key) ?? "").trimmingCharacters(in: .whitespaces)
+            return v.isEmpty ? fallback : v
+        }
         switch self {
         case .none, .custom: return nil
-        case .claude: return "claude"
-        case .claudeContinue: return "claude --continue"
-        case .codex: return "codex"
-        case .gemini: return "gemini"
+        case .claude: return get("cmdClaude", "claude")
+        case .claudeContinue: return get("cmdClaude", "claude") + " --continue"
+        case .codex: return get("cmdCodex", "codex")
+        case .gemini: return get("cmdGemini", "gemini")
         }
     }
 }

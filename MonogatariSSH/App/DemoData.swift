@@ -40,11 +40,27 @@ enum DemoData {
                                       fingerprint: "SHA256:q3sN7k2yYb0x9Lw1uG4mZp8cVt6aDf5eHr2jKs1oXcE", openSSHKey: "")]
         if screen == "hosts" { SessionManager.shared.path.append(Route.hosts) }
         if screen == "snippets" { SessionManager.shared.path.append(Route.snippets) }
+        if screen == "sessions" { _ = SessionManager.shared.open(box) }
         if screen == "terminal" || screen == "sessions" {
             let s = SessionManager.shared.open(us)
             if screen == "terminal" { SessionManager.shared.path.append(Route.terminal(s.id)) }
         }
     }
+
+    /// 等待权限确认的演示输出
+    static let permissionSample: String = {
+        let esc = "\u{1b}"
+        var s = "\(esc)[38;5;209m⏺\(esc)[0m \(esc)[1mBash\(esc)[0m(npm run build)\r\n\r\n"
+        s += "╭────────────────────────────────────────╮\r\n"
+        s += "│ Bash command                           │\r\n"
+        s += "│   npm run build                        │\r\n"
+        s += "│ Do you want to proceed?                │\r\n"
+        s += "│ ❯ 1. Yes                               │\r\n"
+        s += "│   2. Yes, and don't ask again          │\r\n"
+        s += "│   3. No, and tell Claude what to do    │\r\n"
+        s += "╰────────────────────────────────────────╯\r\n"
+        return s
+    }()
 
     /// 离线演示输出（模拟 Claude Code 在 tmux 里）
     static let terminalSample: String = {

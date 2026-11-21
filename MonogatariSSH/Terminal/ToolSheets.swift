@@ -312,3 +312,103 @@ struct ServerStatusSheet: View {
         return d > 0 ? "\(d) 天 \(h) 小时" : (h > 0 ? "\(h) 小时 \(m) 分" : "\(m) 分钟")
     }
 }
+
+// MARK: - 斜杠指令面板
+
+struct SlashCommand: Identifiable, Hashable {
+    var id: String { cmd }
+    let cmd: String
+    let desc: String
+    var needsArg = false
+}
+
+/// Claude Code 常用斜杠指令，点按即发送
+struct SlashPalette: View {
+    @ObservedObject var session: TerminalSession
+    @Environment(\.dismiss) var dismiss
+    @State private var query = ""
+    @AppStorage("slashRecent") private var recentRaw = ""
+
+    static let commands: [SlashCommand] = [
+        SlashCommand(cmd: "/compact", desc: "压缩上下文（可附加要保留的重点）", needsArg: true),
+        SlashCommand(cmd: "/clear", desc: "清空对话，开始新任务"),
+        SlashCommand(cmd: "/model", desc: "切换模型"),
+        SlashCommand(cmd: "/resume", desc: "恢复历史对话"),
+        SlashCommand(cmd: "/context", desc: "查看上下文占用"),
+        SlashCommand(cmd: "/cost", desc: "查看本次花费 / 用量"),
+        SlashCommand(cmd: "/status", desc: "账号与版本状态"),
+        SlashCommand(cmd: "/init", desc: "为项目生成 CLAUDE.md"),
+        SlashCommand(cmd: "/memory", desc: "编辑记忆文件"),
+        SlashCommand(cmd: "/review", desc: "代码审查"),
+        SlashCommand(cmd: "/permissions", desc: "管理工具权限"),
+        SlashCommand(cmd: "/agents", desc: "管理子 agent"),
+        SlashCommand(cmd: "/mcp", desc: "MCP 服务器"),
+        SlashCommand(cmd: "/config", desc: "设置"),
+        SlashCommand(cmd: "/add-dir", desc: "添加工作目录", needsArg: true),
+        SlashCommand(cmd: "/export", desc: "导出对话"),
+        SlashCommand(cmd: "/doctor", desc: "诊断安装问题"),
+        SlashCommand(cmd: "/bug", desc: "反馈问题"),
+        SlashCommand(cmd: "/help", desc: "帮助"),
+        SlashCommand(cmd: "/exit", desc: "退出 Claude Code"),
+    ]
+
+    private var recent: [String] { recentRaw.split(separator: ",").map(String.init) }
+
+    private var filtered: [SlashCommand] {
+        let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+        let list = q.isEmpty ? Self.commands : Self.commands.filter { $0.cmd.contains(q) || $0.desc.contains(q) }
+        // 最近使用的排在前面
+        return list.sorted { a, b in
+            let ia = recent.firstIndex(of: a.cmd) ?? Int.max, ib = recent.firstIndex(of: b.cmd) ?? Int.max
+            return ia < ib
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filtered) { c in
+                Button { run(c) } label: {
+                    HStack {
+                        Text(c.cmd).font(.body.monospaced().weight(.medium)).foregroundStyle(.orange)
+                        Text(c.desc).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer()
+                        if c.needsArg { Image(systemName: "character.cursor.ibeam").foregroundStyle(.tertiary) }
+                    }
+                }
+                .swipeActions {
+                    Button { insert(c) } label: { Label("只输入", systemImage: "character.cursor.ibeam") }.tint(.orange)
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索指令")
+            .navigationTitle("斜杠指令")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func remember(_ c: SlashCommand) {
+        var r = recent.filter { $0 != c.cmd }
+        r.insert(c.cmd, at: 0)
+        recentRaw = r.prefix(6).joined(separator: ",")
+    }
+
+    /// 需要参数的只输入不回车，其余直接发送
+    private func run(_ c: SlashCommand) {
+        if c.needsArg { insert(c); return }
+        remember(c)
+        session.send(text: c.cmd + "\r")
+        Haptics.tap()
+        dismiss()
+    }
+
+    private func insert(_ c: SlashCommand) {
+        remember(c)
+        session.send(text: c.cmd + " ")
+        Haptics.tap()
+        dismiss()
+    }
+}

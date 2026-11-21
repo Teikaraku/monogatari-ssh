@@ -53,6 +53,10 @@ final class SFTPModel: ObservableObject {
     @Published var loading = false
     @Published var error: String?
     @Published var showHidden = false
+    @Published var query = ""
+    @Published var sort: SortKey = .name
+
+    enum SortKey: String, CaseIterable { case name = "名称", size = "大小", date = "修改时间" }
     @Published var preview: URL?
     @Published var editing: EditableFile?
 
@@ -61,7 +65,20 @@ final class SFTPModel: ObservableObject {
 
     init(session: TerminalSession) { self.session = session }
 
-    var visible: [RemoteEntry] { showHidden ? entries : entries.filter { !$0.name.hasPrefix(".") } }
+    var visible: [RemoteEntry] {
+        var list = showHidden ? entries : entries.filter { !$0.name.hasPrefix(".") }
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty { list = list.filter { $0.name.lowercased().contains(q) } }
+        list.sort { a, b in
+            if a.isDir != b.isDir { return a.isDir }
+            switch sort {
+            case .name: return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            case .size: return a.size > b.size
+            case .date: return (a.modified ?? .distantPast) > (b.modified ?? .distantPast)
+            }
+        }
+        return list
+    }
 
     func sftp() async throws -> SFTPClient {
         if let client, client.isActive { return client }
@@ -94,6 +111,7 @@ final class SFTPModel: ObservableObject {
                 }
             }
             list.sort { a, b in a.isDir != b.isDir ? a.isDir : a.name.localizedStandardCompare(b.name) == .orderedAscending }
+            if p != path { query = "" }
             path = p
             entries = list
             error = nil
@@ -262,7 +280,7 @@ struct SFTPBrowser: View {
 
     var body: some View {
         List {
-            if model.path != "/" && !model.path.isEmpty {
+            if model.path != "/" && !model.path.isEmpty && model.query.isEmpty {
                 Button {
                     Task { await model.load((model.path as NSString).deletingLastPathComponent) }
                 } label: {
@@ -280,6 +298,7 @@ struct SFTPBrowser: View {
             }
         }
         .listStyle(.insetGrouped)
+        .searchable(text: $model.query, prompt: "在当前目录中筛选")
         .refreshable { await model.load(model.path) }
         .overlay {
             if model.loading && model.entries.isEmpty { ProgressView() }
@@ -318,6 +337,9 @@ struct SFTPBrowser: View {
                     }
                     Button("复制当前路径", systemImage: "doc.on.doc") { Clipboard.copy(model.path) }
                     Toggle("显示隐藏文件", systemImage: "eye", isOn: $model.showHidden)
+                    Picker("排序", systemImage: "arrow.up.arrow.down", selection: $model.sort) {
+                        ForEach(SFTPModel.SortKey.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
                 } label: { Image(systemName: "ellipsis") }
             }
         }

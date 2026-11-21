@@ -17,6 +17,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     let titleModel = TitleModel()
     var title: String { titleModel.title }
     @Published var atBottom = true
+    /// tmux 未开鼠标滚动时提示
+    @Published var needsMouseHint = false
     @Published var pendingHostKey: PendingHostKey?
     let startedAt = Date()
 
@@ -37,6 +39,8 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
     private var reconnecting = false
     private(set) var wasConnectedOnce = false
     @Published private(set) var agentStatus: AgentStatus = .unknown
+    /// Claude Code 当前模式（计划 / 自动接受 / 跳过权限），nil = 普通
+    @Published private(set) var agentMode: String?
     private var statusTimer: Timer?
     /// 最近一行有意义的输出（会话列表预览用）
     @Published private(set) var lastLine = ""
@@ -86,6 +90,11 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         if settings.useMetal { try? v.setUseMetal(true) }
         v.onFontSizeChange = { size in AppSettings.shared.fontSize = Double(size) }
         v.contentInsetAdjustmentBehavior = .never
+        v.suppressArrowScroll = host.restore == .tmux
+        v.onNeedsMouseMode = { [weak self] in
+            guard let self, !self.needsMouseHint else { return }
+            self.needsMouseHint = true
+        }
         v.onUserScroll = { [weak self] in self?.setAtBottom(false) }
 
         bar = KeyboardBar(terminal: v, agentRow: settings.agentBar)
@@ -117,6 +126,10 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         let tail = rows.suffix(14)
         let joined = tail.joined(separator: "\n").lowercased()
         let new = AgentStatus.detect(tail: joined)
+        let mode: String? = joined.contains("plan mode on") ? "计划模式"
+            : joined.contains("accept edits on") ? "自动接受"
+            : joined.contains("bypass permissions on") ? "跳过权限" : nil
+        if mode != agentMode { agentMode = mode }
         if let line = rows.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.contains("─") && !$0.contains("━") }) {
             let clean = line.trimmingCharacters(in: CharacterSet(charactersIn: " │|╭╮╰╯>"))
             if clean != lastLine { lastLine = String(clean.prefix(120)) }
@@ -132,6 +145,14 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             default: break
             }
         }
+    }
+
+    /// 设置变化后重建键盘辅助栏
+    func rebuildBar() {
+        bar = KeyboardBar(terminal: terminalView, agentRow: AppSettings.shared.agentBar)
+        bar.onAction = { [weak self] a in self?.handle(a) }
+        terminalView.inputAccessoryView = bar
+        terminalView.reloadInputViews()
     }
 
     func setAtBottom(_ v: Bool) {
@@ -153,7 +174,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         if DemoData.active {
             state = .connected
             titleModel.update("claude")
-            terminalView.feed(text: DemoData.terminalSample)
+            terminalView.feed(text: host.alias == "Box" ? DemoData.permissionSample : DemoData.terminalSample)
             startStatusPolling()
             return
         }
@@ -312,6 +333,7 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
         case .copyScreen: Clipboard.copy(terminalView.screenText())
         case .search: NotificationCenter.default.post(name: .monoShowSearch, object: id)
         case .selectMode: NotificationCenter.default.post(name: .monoShowOutput, object: id)
+        case .slashPalette: NotificationCenter.default.post(name: .monoShowSlash, object: id)
         }
     }
 
@@ -337,6 +359,16 @@ final class TerminalSession: ObservableObject, Identifiable, HostKeyPrompter {
             bar.setAlt(false)
         }
         return out
+    }
+
+    /// 通过 exec 通道给 tmux 开启鼠标滚动（不往终端里打字）
+    func enableTmuxMouse() {
+        needsMouseHint = false
+        guard let t = sshTransport else { return }
+        Task {
+            _ = try? await t.exec("tmux set -g mouse on; tmux bind -T copy-mode WheelUpPane send -N1 -X scroll-up; tmux bind -T copy-mode WheelDownPane send -N1 -X scroll-down; tmux bind -T copy-mode-vi WheelUpPane send -N1 -X scroll-up; tmux bind -T copy-mode-vi WheelDownPane send -N1 -X scroll-down; true")
+            Toast.shared.show("已开启 tmux 鼠标滚动")
+        }
     }
 
     func run(_ snippet: Snippet) {
@@ -487,6 +519,7 @@ extension Notification.Name {
     static let monoShowSnippets = Notification.Name("mono.showSnippets")
     static let monoShowSearch = Notification.Name("mono.showSearch")
     static let monoShowOutput = Notification.Name("mono.showOutput")
+    static let monoShowSlash = Notification.Name("mono.showSlash")
 }
 
 /// 管理所有活动会话（「会话」页）。

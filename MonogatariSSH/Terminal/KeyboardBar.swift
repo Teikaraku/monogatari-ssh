@@ -51,7 +51,8 @@ struct BarKey: Identifiable, Hashable {
         BarKey(id: "ok3", title: "3", tint: .systemGreen, kind: .text("3"), help: "选择第 3 项"),
         BarKey(id: "y", title: "y", kind: .text("y")),
         BarKey(id: "n", title: "n", kind: .text("n")),
-        BarKey(id: "slash", title: "/", tint: .systemOrange, kind: .text("/"), help: "斜杠指令"),
+        BarKey(id: "slashMenu", title: "/指令", tint: .systemOrange, kind: .action(.slashPalette), help: "弹出 Claude Code 斜杠指令面板"),
+        BarKey(id: "slash", title: "/", tint: .systemOrange, kind: .text("/"), help: "输入斜杠"),
         BarKey(id: "at", title: "@", tint: .systemTeal, kind: .text("@"), help: "引用文件"),
         BarKey(id: "bang", title: "!", tint: .systemGreen, kind: .text("!"), help: "Claude Code 直接执行 shell"),
         BarKey(id: "hash", title: "#", tint: .systemIndigo, kind: .text("#"), help: "写入记忆"),
@@ -91,7 +92,7 @@ struct BarKey: Identifiable, Hashable {
     static let byID: [String: BarKey] = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
 
     static let defaultRow: [String] = [
-        "mode", "newline", "ok1", "ok2", "ok3", "slash", "at", "paste", "compose", "snippets",
+        "mode", "newline", "ok1", "ok2", "ok3", "slashMenu", "at", "paste", "compose", "snippets",
         "^C", "sym|", "sym~", "sym-", "sym/", "sym_", "sym*", "sym.", "^R", "^L", "^D", "^Z",
         "home", "end", "pgup", "pgdn", "tmuxCopy", "verbose", "bang", "hash", "rewind", "search",
     ]
@@ -109,7 +110,7 @@ final class KeyboardBar: UIInputView {
         case text(String)
         case toggleCtrl, toggleAlt
         case arrow(Arrow)
-        case compose, snippets, paste, hideKeyboard, copyScreen, search, selectMode
+        case compose, snippets, paste, hideKeyboard, copyScreen, search, selectMode, slashPalette
     }
     enum Arrow: Hashable { case up, down, left, right }
 
@@ -162,7 +163,7 @@ final class KeyboardBar: UIInputView {
             return k
         }
         _ = cap("esc", action: .bytes([0x1b]))
-        _ = cap("tab", symbol: "arrow.right.to.line", action: .bytes([0x09]))
+        _ = cap("tab", action: .bytes([0x09]))
         ctrlCap = cap("ctrl", action: .toggleCtrl)
         ctrlCap.isToggle = true
         altCap = cap("alt", action: .toggleAlt)
@@ -189,6 +190,7 @@ final class KeyboardBar: UIInputView {
         scrollKeys = AppSettings.shared.barKeyIDs.compactMap { BarKey.byID[$0] }.map { key in
             let k = KeyCap(title: key.title, symbol: key.symbol, tint: key.tint)
             k.repeats = key.repeats
+            k.help = key.help
             let action: Action
             switch key.kind {
             case .bytes(let b): action = .bytes(b)
@@ -245,6 +247,9 @@ final class KeyCap: UIControl {
     var onFire: (() -> Void)?
     var repeats = false
     var isToggle = false
+    /// 长按显示的说明（不连发的键）
+    var help = ""
+    private var helpShown = false
     var isOn = false { didSet { updateColors() } }
 
     private let label = UILabel()
@@ -332,7 +337,17 @@ final class KeyCap: UIControl {
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         firedByRepeat = false
+        helpShown = false
         Haptics.soft()
+        if !repeats && !help.isEmpty {
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.helpShown = true
+                Haptics.tap()
+                Toast.shared.show(self.help)
+            }
+        }
         if repeats {
             timer?.invalidate()
             timer = Timer.scheduledTimer(withTimeInterval: 0.38, repeats: false) { [weak self] _ in
@@ -349,7 +364,7 @@ final class KeyCap: UIControl {
         super.endTracking(touch, with: event)
         timer?.invalidate(); timer = nil
         guard let touch, bounds.insetBy(dx: -12, dy: -12).contains(touch.location(in: self)) else { return }
-        if !firedByRepeat {
+        if !firedByRepeat && !helpShown {
             Haptics.tap()
             onFire?()
         }

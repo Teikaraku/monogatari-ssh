@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import SafariServices
 
 /// 承载会话持有的 TerminalView（会话在后台时视图仍被保留，回来不丢内容）
 struct TerminalContainer: UIViewRepresentable {
@@ -45,6 +46,10 @@ struct TerminalScreen: View {
     @State private var showSearch = false
     @State private var showOutput = false
     @State private var showTmux = false
+    @State private var showSlash = false
+    @State private var keyboardVisible = false
+    @State private var editingHost = false
+    @State private var webURL: WebURL?
     @AppStorage("terminalTipsSeen") private var tipsSeen = false
     @State private var showStatus = false
 
@@ -61,9 +66,27 @@ struct TerminalScreen: View {
                 TerminalContainer(session: session)
                     .ignoresSafeArea(.container, edges: .bottom)
                 overlays
+                if !keyboardVisible && session.state == .connected {
+                    Button {
+                        _ = session.terminalView.becomeFirstResponder()
+                        Haptics.tap()
+                    } label: {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 48, height: 48)
+                            .foregroundStyle(theme.isDark ? .white : .black)
+                    }
+                    .glassCircle()
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel("显示键盘")
+                }
             }
+            .animation(.snappy, value: keyboardVisible)
         }
         .background(theme.bgColor.ignoresSafeArea())
+        .background(shortcuts)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(theme.isDark ? .dark : .light)
@@ -82,14 +105,26 @@ struct TerminalScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .monoShowSearch)) { n in
             if n.object as? UUID == session.id { withAnimation(.snappy) { showSearch = true } }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .monoShowSlash)) { n in
+            if n.object as? UUID == session.id { showSlash = true }
+        }
+        .sheet(isPresented: $showSlash, onDismiss: refocus) { SlashPalette(session: session) }
         .onReceive(NotificationCenter.default.publisher(for: .monoShowOutput)) { n in
             if n.object as? UUID == session.id { showOutput = true }
         }
         .sheet(isPresented: $showOutput, onDismiss: refocus) { OutputBrowser(session: session) }
+        .sheet(item: $webURL, onDismiss: refocus) { w in SafariView(url: w.url).ignoresSafeArea() }
         .sheet(isPresented: $showTmux, onDismiss: refocus) { TmuxManagerSheet(session: session) }
         .sheet(isPresented: $showStatus, onDismiss: refocus) { ServerStatusSheet(session: session) }
         .sheet(isPresented: $showCompose, onDismiss: refocus) { ComposeSheet(session: session) }
         .sheet(isPresented: $showSnippets, onDismiss: refocus) { SnippetPicker(session: session) }
+        .sheet(isPresented: $editingHost) { HostEditView(host: store.host(session.host.id)) }
         .sheet(isPresented: $showInfo, onDismiss: refocus) { HostInfoSheet(host: session.host) }
         .sheet(isPresented: $showThemes, onDismiss: refocus) {
             NavigationStack {
@@ -191,6 +226,16 @@ struct TerminalScreen: View {
                         Button("tmux 会话 / 并行 agent", systemImage: "square.stack.3d.up") { showTmux = true }
                         Button("服务器状态", systemImage: "gauge.with.dots.needle.33percent") { showStatus = true }
                     }
+                    let fwd = session.host.forwards.filter(\.enabled)
+                    if !fwd.isEmpty {
+                        Section("端口转发 · 在浏览器打开") {
+                            ForEach(fwd) { f in
+                                Button("localhost:\(f.localPort) → \(f.remotePort)", systemImage: "safari") {
+                                    if let url = URL(string: "http://localhost:\(f.localPort)") { webURL = WebURL(url: url) }
+                                }
+                            }
+                        }
+                    }
                     Button("复制屏幕内容", systemImage: "doc.on.doc") { Clipboard.copy(session.terminalView.screenText()) }
                     Button("复制全部输出", systemImage: "doc.on.clipboard") { Clipboard.copy(session.terminalView.allText()) }
                     Divider()
@@ -226,6 +271,9 @@ struct TerminalScreen: View {
                 HStack(spacing: 4) {
                     Circle().fill(session.agentStatus.color).frame(width: 6, height: 6)
                     Text(label)
+                    if let mode = session.agentMode {
+                        Text("· " + mode).foregroundStyle(mode == "跳过权限" ? .red : .purple)
+                    }
                 }
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -277,6 +325,19 @@ struct TerminalScreen: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             }
+            if session.needsMouseHint {
+                HStack(spacing: 10) {
+                    Image(systemName: "computermouse").foregroundStyle(.purple)
+                    Text("tmux 未开启鼠标滚动").font(.subheadline)
+                    Button("开启") { session.enableTmuxMouse() }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                    Button { session.needsMouseHint = false } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if !session.atBottom {
                 Button {
                     session.terminalView.stopMomentum()
@@ -301,7 +362,21 @@ struct TerminalScreen: View {
                         if let msg { Text(msg).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                     }
                     Spacer(minLength: 8)
-                    Button("重新连接") { session.reconnect() }
+                    if session.host.proto == .ssh, store.host(session.host.id) != nil {
+                        Button("编辑") { editingHost = true }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    Button("重新连接") {
+                        if let latest = store.host(session.host.id) {
+                            // 用最新配置重连，但保留本会话的 tmux 名
+                            var h = latest
+                            h.tmuxSession = session.host.tmuxSession
+                            h.restore = session.host.restore
+                            session.host = h
+                        }
+                        session.reconnect()
+                    }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
@@ -314,6 +389,30 @@ struct TerminalScreen: View {
         .padding(16)
         .animation(.snappy, value: session.atBottom)
         .animation(.snappy, value: session.state)
+    }
+
+    /// 硬件键盘快捷键（iPad / 蓝牙键盘），按住 ⌘ 时系统会列出
+    private var shortcuts: some View {
+        Group {
+            Button("搜索") { withAnimation(.snappy) { showSearch = true } }.keyboardShortcut("f", modifiers: .command)
+            Button("清屏") { session.terminalView.feed(text: "\u{1b}[H\u{1b}[2J"); session.send([0x0c]) }.keyboardShortcut("k", modifiers: .command)
+            Button("放大字号") { bumpFont(1) }.keyboardShortcut("+", modifiers: .command)
+            Button("缩小字号") { bumpFont(-1) }.keyboardShortcut("-", modifiers: .command)
+            Button("写作") { showCompose = true }.keyboardShortcut("e", modifiers: [.command, .shift])
+            Button("片段") { showSnippets = true }.keyboardShortcut("p", modifiers: [.command, .shift])
+            Button("断开") { confirmClose = true }.keyboardShortcut("w", modifiers: .command)
+            Button("上一个会话") { cycle(-1) }.keyboardShortcut("[", modifiers: .command)
+            Button("下一个会话") { cycle(1) }.keyboardShortcut("]", modifiers: .command)
+        }
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func cycle(_ d: Int) {
+        let all = sessions.sessions
+        guard all.count > 1, let i = all.firstIndex(where: { $0.id == session.id }) else { return }
+        switchTo(all[(i + d + all.count) % all.count])
     }
 
     /// 替换导航栈顶部的终端页，不堆叠
@@ -362,4 +461,18 @@ private struct TitleLine: View {
             Text(model.title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
     }
+}
+
+
+struct WebURL: Identifiable { let url: URL; var id: String { url.absoluteString } }
+
+/// 应用内浏览器：保持 app 在前台，端口转发不会因进入后台而断开
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let c = SFSafariViewController.Configuration()
+        c.entersReaderIfAvailable = false
+        return SFSafariViewController(url: url, configuration: c)
+    }
+    func updateUIViewController(_ vc: SFSafariViewController, context: Context) {}
 }
