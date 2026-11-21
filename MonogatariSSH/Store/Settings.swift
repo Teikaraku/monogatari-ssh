@@ -24,6 +24,8 @@ final class AppSettings: ObservableObject {
     @AppStorage("barKeys") var barKeysRaw: String = ""
     /// 连接成功 / 断开 / agent 响铃 时发本地通知（app 在后台时）
     @AppStorage("notifyBell") var notifyBell: Bool = true
+    /// 点按光标所在行移动光标
+    @AppStorage("tapMovesCursor") var tapMovesCursor: Bool = true
     @AppStorage("cmdClaude") var cmdClaude: String = ""
     @AppStorage("cmdCodex") var cmdCodex: String = ""
     @AppStorage("cmdGemini") var cmdGemini: String = ""

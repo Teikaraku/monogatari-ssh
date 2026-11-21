@@ -21,6 +21,7 @@ final class MonoTerminalView: TerminalView {
     private var pinch: UIPinchGestureRecognizer!
     private var pinchBaseSize: CGFloat = 13
     private lazy var gestureHelper = GestureHelper(owner: self)
+    private var cursorTap: UITapGestureRecognizer?
 
     // 惯性
     private var displayLink: CADisplayLink?
@@ -49,6 +50,12 @@ final class MonoTerminalView: TerminalView {
         wheelPan.maximumNumberOfTouches = 1
         wheelPan.delegate = gestureHelper
         addGestureRecognizer(wheelPan)
+
+        let cursorTap = UITapGestureRecognizer(target: self, action: #selector(handleCursorTap(_:)))
+        cursorTap.delegate = gestureHelper
+        cursorTap.cancelsTouchesInView = false
+        addGestureRecognizer(cursorTap)
+        self.cursorTap = cursorTap
 
         pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = gestureHelper
@@ -81,6 +88,35 @@ final class MonoTerminalView: TerminalView {
     }
 
     fileprivate func isPinch(_ g: UIGestureRecognizer) -> Bool { g === pinch }
+    fileprivate func isCursorTap(_ g: UIGestureRecognizer) -> Bool { g === cursorTap }
+
+    /// 点按光标所在行：发送左右方向键把光标移过去（编辑 agent 输入 / 命令行）。
+    /// 仅在键盘已弹出、普通屏、停在底部时生效；按字符数而非格数计算（中文占两格只需一次方向键）。
+    @objc private func handleCursorTap(_ g: UITapGestureRecognizer) {
+        guard g.state == .ended, AppSettings.shared.tapMovesCursor, isFirstResponder,
+              !programOwnsScroll, isAtBottom, !hasActiveSelection,
+              let st = terminalStateSnapshot() else { return }
+        let cols = st.dimensions.cols, rows = st.dimensions.rows
+        guard cols > 0, rows > 0 else { return }
+        let p = g.location(in: self)
+        let cellW = bounds.width / CGFloat(cols)
+        let cellH = bounds.height / CGFloat(rows)
+        let tapCol = min(cols - 1, max(0, Int(p.x / cellW)))
+        let tapRow = min(rows - 1, max(0, Int((p.y - contentOffset.y) / cellH)))
+        let cur = st.cursor
+        guard tapRow == cur.row, tapCol != cur.col else { return }
+        // 按单元格宽度换算成字符数
+        var presses = abs(tapCol - cur.col)
+        if let snap = terminalContentSnapshot(region: .viewport), tapRow < snap.rows.count {
+            let cells = snap.rows[tapRow].cells
+            let lo = min(tapCol, cur.col), hi = min(max(tapCol, cur.col), cells.count)
+            if lo < hi { presses = cells[lo..<hi].filter { $0.width > 0 }.count }
+        }
+        presses = min(presses, 300)
+        guard presses > 0 else { return }
+        for _ in 0..<presses { tapCol > cur.col ? sendKeyRight() : sendKeyLeft() }
+        Haptics.soft()
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         stopMomentum()
@@ -206,12 +242,12 @@ private final class GestureHelper: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let owner else { return false }
-        if owner.isPinch(g) { return true }
+        if owner.isPinch(g) || owner.isCursorTap(g) { return true }
         return owner.shouldBeginWheel()
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         guard let owner else { return false }
-        return owner.isPinch(g)
+        return owner.isPinch(g) || owner.isCursorTap(g)
     }
 }

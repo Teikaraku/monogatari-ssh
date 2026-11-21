@@ -330,6 +330,18 @@ final class SSHTransport: TerminalTransport {
         onClose?(error)
     }
 
+    /// 回到前台时探活：3 秒内 exec 不返回即认为连接已死
+    func probe() async -> Bool {
+        guard let client, client.isConnected else { return false }
+        return await withTaskGroup(of: Bool.self) { g in
+            g.addTask { (try? await client.executeCommand("true")) != nil }
+            g.addTask { try? await Task.sleep(nanoseconds: 3_000_000_000); return false }
+            let first = await g.next() ?? false
+            g.cancelAll()
+            return first
+        }
+    }
+
     /// 在同一连接上开 exec 通道执行命令，返回输出（不影响终端）
     func exec(_ command: String) async throws -> String {
         guard let client else { throw ConnectError.message("未连接") }

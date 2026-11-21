@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MonogatariSSHApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = AppStore.shared
     @StateObject private var settings = AppSettings.shared
     @StateObject private var sessions = SessionManager.shared
@@ -59,10 +60,15 @@ struct RootView: View {
             .tabItem { Label("设置", systemImage: "gearshape.fill") }
             .tag(AppTab.settings)
         }
+        .onChange(of: sessions.focusHome) { _, _ in tab = .home }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .background: Lifecycle.didEnterBackground()
-            case .active: Lifecycle.didBecomeActive()
+            case .background:
+                Lifecycle.didEnterBackground()
+                QuickActions.refresh()
+            case .active:
+                Lifecycle.didBecomeActive()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { QuickActions.runPending() }
             default: break
             }
         }
@@ -100,10 +106,12 @@ extension SessionManager {
     /// 打开主机：新建会话并推入终端页
     func connect(_ host: Host) {
         let s = open(host)
+        focusHome += 1
         path.append(Route.terminal(s.id))
     }
 
     func show(_ s: TerminalSession) {
+        focusHome += 1
         path.append(Route.terminal(s.id))
     }
 }

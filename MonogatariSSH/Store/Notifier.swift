@@ -30,6 +30,8 @@ enum Notifier {
         c.body = body
         c.sound = .default
         c.threadIdentifier = key
+        // key 以会话 UUID 开头，点通知时据此跳转
+        c.userInfo = ["session": String(key.prefix(36))]
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)
     }
@@ -76,6 +78,11 @@ enum Lifecycle {
         for s in SessionManager.shared.sessions {
             if case .disconnected = s.state, s.wasConnectedOnce {
                 s.reconnect()
+            } else if s.state == .connected, let t = s.sshTransport {
+                // iOS 常在后台静默掐断 TCP：探活失败就立即重连，不用等用户打字才发现
+                Task { @MainActor in
+                    if !(await t.probe()), s.state == .connected, s.sshTransport === t { s.reconnect() }
+                }
             }
         }
     }

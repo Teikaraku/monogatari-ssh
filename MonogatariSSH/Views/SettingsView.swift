@@ -7,6 +7,14 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                NavigationLink { GuideView() } label: {
+                    HStack(spacing: 12) {
+                        IconTile(symbol: "book.fill", colors: Color.tileOrange)
+                        Text("功能指南")
+                    }
+                }
+            }
+            Section {
                 HStack(spacing: 12) {
                     IconTile(symbol: "plus.magnifyingglass", colors: Color.tileBlue)
                     Stepper("字号 \(Int(settings.fontSize))", value: $settings.fontSize, in: 8...30, step: 1)
@@ -28,6 +36,10 @@ struct SettingsView: View {
                     Toggle("光标闪烁", isOn: $settings.cursorBlink)
                 }
                 HStack(spacing: 12) {
+                    IconTile(symbol: "hand.point.up.left.fill", colors: Color.tileTeal)
+                    Toggle("点按移动光标", isOn: $settings.tapMovesCursor)
+                }
+                HStack(spacing: 12) {
                     IconTile(symbol: "paintpalette.fill", colors: Color.tileMagenta)
                     Picker("新主机默认配色", selection: $settings.defaultTheme) {
                         ForEach(TerminalTheme.all) { Text($0.name).tag($0.id) }
@@ -38,7 +50,7 @@ struct SettingsView: View {
             } header: {
                 Text("终端")
             } footer: {
-                Text("在终端里双指捏合也能实时调整字号。")
+                Text("在终端里双指捏合也能实时调整字号。点按移动光标：键盘弹出时点一下输入行的某个位置，光标就移过去，方便修改 agent 提示词或长命令。")
             }
 
             Section {

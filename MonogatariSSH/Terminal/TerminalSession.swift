@@ -560,6 +560,8 @@ final class SessionManager: ObservableObject {
     @Published var path = NavigationPath()
     /// 当前正在查看的终端会话
     var visibleID: UUID?
+    /// 自增即让根视图切回主页标签（终端页在主页导航栈里）
+    @Published var focusHome = 0
     /// 上次 app 退出前开着的会话（主机快照，含 tmux 会话名），用于一键恢复
     @Published private(set) var restorable: [Host] = []
 
